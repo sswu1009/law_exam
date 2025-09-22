@@ -24,7 +24,17 @@ with st.expander("📄 題庫格式說明（必要欄位）", expanded=False):
         """
     )
 
-uploaded = st.file_uploader("上傳 Excel 題庫（.xlsx）", type=["xlsx"])
+# ---- 題庫來源設定 ----
+# 預設：使用專案內固定檔案（不讓一般使用者上傳）
+FIXED_BANK_PATH = "exam_bank.xlsx"  # 請把題庫檔放在 repo 根目錄
+
+# 管理模式切換（?admin=1 或 st.secrets["ADMIN"]=="1"）
+qparams = st.query_params
+IS_ADMIN = qparams.get("admin", ["0"])[:1][0] == "1" or str(st.secrets.get("ADMIN", "0")) == "1"
+
+uploaded = None
+if IS_ADMIN:
+    uploaded = st.file_uploader("（管理者）上傳/覆寫 Excel 題庫（.xlsx）", type=["xlsx"])
 
 if "df" not in st.session_state:
     st.session_state.df = None
@@ -137,11 +147,22 @@ def load_bank(file):
         st.exception(e)
         return None
 
+# 載入順序：1) 管理者上傳；2) 固定檔案；3) 提示錯誤
 if uploaded is not None:
     st.session_state.df = load_bank(uploaded)
+else:
+    try:
+        with open(FIXED_BANK_PATH, "rb") as f:
+            st.session_state.df = load_bank(f)
+            st.caption(f"使用固定題庫：{FIXED_BANK_PATH}")
+    except Exception:
+        st.session_state.df = None
 
 if st.session_state.df is None:
-    st.info("請先上傳題庫 Excel 檔。")
+    if IS_ADMIN:
+        st.error("找不到題庫。請上傳一份 Excel 作為固定題庫，或把檔案放在專案根目錄並命名為 exam_bank.xlsx。")
+    else:
+        st.error("目前尚未配置題庫，請聯絡管理者。")
     st.stop()
 
 bank = st.session_state.df
@@ -212,8 +233,7 @@ if start_btn or (st.session_state.paper and st.session_state.start_ts is not Non
     if start_btn:
         st.session_state.paper = sample_paper(filtered, int(num_q), bool(picked_tags))
         st.session_state.start_ts = time.time()
-        st.rerun()
-
+        st.experimental_rerun()
 
     paper = st.session_state.paper or []
     if not paper:
@@ -315,5 +335,4 @@ if start_btn or (st.session_state.paper and st.session_state.start_ts is not Non
             st.session_state.paper = None
             st.session_state.start_ts = None
             st.session_state[answers_key] = {}
-            st.rerun()
-
+            st.experimental_rerun()
