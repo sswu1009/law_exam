@@ -7,21 +7,15 @@ from io import BytesIO
 st.set_page_config(page_title="模擬考試機器人", layout="wide")
 st.title("📘 模擬考試機器人（Excel 題庫）")
 
-with st.expander("📄 題庫格式說明（必要欄位）", expanded=False):
+with st.expander("錠嵂保險經紀人證照模擬練習", expanded=False):
     st.markdown(
         """
-        上傳的 Excel 檔需包含以下欄位：
+       使用說明
+1. 本系統使用固定題庫自動出題（單選/複選自動判斷）。
+2. 左側設定完題數與選項後，點 **開始考試** 進入作答。
+3. 交卷後會顯示分數與詳細解答，並可下載作答明細（CSV）。
 
-        - **ID**：題目編號（數字或字串）
-        - **Question**：題目敘述（支援多行）
-        - **Type**：題型（`SC`=單選、`MC`=複選）
-        - **OptionA ~ OptionD**：選項文字（至少 A、B；可擴充到 E/F…，程式會自動偵測）
-        - **Answer**：正確答案（單選用 `A`/`B`/`C`…，複選用如 `AC`、`BD` 等**不含分隔符**的字母組合）
-        - **Explanation**：詳解（可空白）
-        - **Tag**：標籤/科目（多個以分號 `;` 分隔，如：`數學;質數`）
-        - **Image**：圖片路徑或網址（可空白）
-
-        ✅ 範例下載：在對話區點選 **Download** 連結取得 `exam_template.xlsx` 範本。
+        請點選左上角的三個箭頭開始設定
         """
     )
 
