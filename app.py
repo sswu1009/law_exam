@@ -26,7 +26,8 @@ with st.expander("📄 題庫格式說明（必要欄位）", expanded=False):
 
 # ---- 題庫來源設定 ----
 # 預設：使用專案內固定檔案（不讓一般使用者上傳）
-FIXED_BANK_PATH = "exam_bank.xlsx"  # 請把題庫檔放在 repo 根目錄
+# 題庫檔名來源：環境變數 BANK_FILE，預設 exam_bank.xlsx
+FIXED_BANK_PATH = os.environ.get("BANK_FILE", "exam_bank.xlsx")
 
 # 管理模式切換（?admin=1 或 st.secrets["ADMIN"]=="1"）
 qparams = st.query_params
