@@ -28,7 +28,7 @@ with st.expander("📄 題庫格式說明（必要欄位）", expanded=False):
 # ---- 題庫來源設定 ----
 # 預設：使用專案內固定檔案（不讓一般使用者上傳）
 # 題庫檔名來源：環境變數 BANK_FILE，預設 exam_bank.xlsx
-FIXED_BANK_PATH = os.environ.get("BANK_FILE", "exam_bank.xlsx")
+FIXED_BANK_PATH = os.environ.get("BANK_FILE", "PA_分章_20250731_LIB.xlsx")
 
 # 管理模式切換（?admin=1 或 st.secrets["ADMIN"]=="1"）
 qparams = st.query_params
@@ -235,7 +235,7 @@ if start_btn or (st.session_state.paper and st.session_state.start_ts is not Non
     if start_btn:
         st.session_state.paper = sample_paper(filtered, int(num_q), bool(picked_tags))
         st.session_state.start_ts = time.time()
-        st.experimental_rerun()
+        st.rerun()
 
     paper = st.session_state.paper or []
     if not paper:
@@ -337,4 +337,4 @@ if start_btn or (st.session_state.paper and st.session_state.start_ts is not Non
             st.session_state.paper = None
             st.session_state.start_ts = None
             st.session_state[answers_key] = {}
-            st.experimental_rerun()
+            st.rerun()
