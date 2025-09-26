@@ -455,11 +455,11 @@ if st.session_state.started and st.session_state.paper:
         st.session_state[answers_key][q["ID"]] = picked_labels
 # 💡 AI 提示按鈕
         if use_ai:
-        if st.button(f"💡 AI 提示（Q{idx}）", key=f"ai_hint_{idx}"):
-            ck, sys, usr = build_hint_prompt(q)
-            with st.spinner("AI 產生提示中…"):
-                hint = _gemini_generate_cached(ck, sys, usr)
-            st.info(hint)
+            if st.button(f"💡 AI 提示（Q{idx}）", key=f"ai_hint_{idx}"):
+                ck, sys, usr = build_hint_prompt(q)
+                with st.spinner("AI 產生提示中…"):
+                    hint = _gemini_generate_cached(ck, sys, usr)
+                st.info(hint)
 
         st.divider()
 
