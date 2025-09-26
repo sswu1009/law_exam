@@ -346,16 +346,6 @@ with st.sidebar:
     shuffle_options = st.checkbox("隨機打亂選項順序", value=True)
     random_order = st.checkbox("隨機打亂題目順序", value=True)
     show_image = st.checkbox("顯示圖片（若有）", value=True)
-
-    #出題迴圈中加入提示
-    if use_ai:
-        if st.button(f"💡 AI 提示（Q{idx}）", key=f"ai_hint_{idx}"):
-            ck, sys, usr = build_hint_prompt(q)
-            with st.spinner("AI 產生提示中…"):
-                hint = _gemini_generate_cached(ck, sys, usr)
-            st.info(hint)
-
-
     st.divider()
     time_limit_min = st.number_input("時間限制（分鐘，0=無限制）", min_value=0, max_value=300, value=0)
     st.session_state.time_limit = int(time_limit_min) * 60
@@ -463,6 +453,14 @@ if st.session_state.started and st.session_state.paper:
             picked_labels = {choice.split(".", 1)[0]} if choice else set()
 
         st.session_state[answers_key][q["ID"]] = picked_labels
+# 💡 AI 提示按鈕
+        if use_ai:
+        if st.button(f"💡 AI 提示（Q{idx}）", key=f"ai_hint_{idx}"):
+            ck, sys, usr = build_hint_prompt(q)
+            with st.spinner("AI 產生提示中…"):
+                hint = _gemini_generate_cached(ck, sys, usr)
+            st.info(hint)
+
         st.divider()
 
     submitted = st.button("📥 交卷並看成績", use_container_width=True)
