@@ -545,23 +545,83 @@ elif st.session_state.started and st.session_state.paper and st.session_state.sh
     csv_bytes = result_df.to_csv(index=False).encode("utf-8-sig")
     st.download_button("⬇️ 下載作答明細（CSV）", data=csv_bytes, file_name="exam_results.csv", mime="text/csv")
 
-    # 🧠 AI 詳解（逐題） + 📊 AI 考後總結
-    if use_ai:
-        st.subheader("🧠 AI 詳解（逐題）")
-        for i, q in enumerate(st.session_state.paper, start=1):
-            with st.expander(f"Q{i}：{q['Question'][:40]}..."):
-                if st.button(f"產生詳解（Q{i}）", key=f"ai_explain_{i}"):
-                    ck, sys, usr = build_explain_prompt(q)  # 會優先參考題庫的解答說明
+    # === 題目詳解（依作答結果上色 + 展開詳解） ===
+    st.subheader("🧠 AI 詳解（逐題，依作答結果著色）")
+    
+    answers_key = "answers"
+    
+    def _fmt_letters(letters_set: set[str]) -> str:
+        return ", ".join(sorted(list(letters_set))) if letters_set else "(未作答)"
+    
+    for i, q in enumerate(st.session_state.paper, start=1):
+        gold = set(q["Answer"])
+        pred = st.session_state.get(answers_key, {}).get(q["ID"], set())
+        is_correct = (pred == gold)
+    
+        # 顏色：綠=正確、紅=錯誤
+        bg     = "#eaf7ee" if is_correct else "#fdecea"   # 淺綠 / 淺紅
+        border = "#34a853" if is_correct else "#d93025"   # 綠 / 紅
+        title  = f"Q{i}｜{'✅ 正確' if is_correct else '❌ 錯誤'}｜你的答案：{_fmt_letters(pred)}"
+    
+        # 外層彩色框
+        st.markdown(
+            f"""
+            <div style="
+                border:2px solid {border};
+                background:{bg};
+                border-radius:12px;
+                padding:12px 16px;
+                margin:10px 0;
+                font-weight:700;">
+                {title}
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+    
+        # 展開詳解
+        with st.expander("展開詳解"):
+            # 題目
+            st.markdown(
+                f"<div style='white-space: pre-wrap'><strong>題目：</strong>{q['Question']}</div>",
+                unsafe_allow_html=True
+            )
+    
+            # 選項（同時標註你的選擇與正解）
+            mapping = {lab: txt for lab, txt in q["Choices"]}
+            st.markdown("**選項：**")
+            for lab, txt in q["Choices"]:
+                tag = ""
+                if lab in pred:
+                    tag += "（你的選擇）"
+                if lab in gold:
+                    tag += " ✅"
+                st.markdown(f"- **{lab}**. {txt} {tag}")
+    
+            # 正解
+            st.markdown(f"**正解：** {_fmt_letters(gold)}")
+    
+            # 題庫詳解（若有）
+            if str(q.get("Explanation", "")).strip():
+                st.info(f"📖 題庫詳解：{q['Explanation']}")
+    
+            # AI 詳解（每題各按一次，結果顯示在本題下）
+            if use_ai:
+                if st.button(f"🤖 產生 AI 詳解（Q{i}）", key=f"ai_explain_colored_{i}"):
+                    ck, sys, usr = build_explain_prompt(q)
                     with st.spinner("AI 產生詳解中…"):
                         expl = _gemini_generate_cached(ck, sys, usr)
-                    st.write(expl)
+                    st.success(expl)
 
-        st.subheader("📊 AI 考後總結")
-        if st.button("產出弱項分析與建議", key="ai_summary_btn"):
-            ck, sys, usr = build_summary_prompt(result_df)
-            with st.spinner("AI 分析中…"):
-                summ = _gemini_generate_cached(ck, sys, usr)
-            st.write(summ)
+# === 📊 AI 考後總結（整份考卷） ===
+if use_ai:
+    st.subheader("📊 AI 考後總結")
+    if st.button("產出弱項分析與建議", key="ai_summary_btn"):
+        ck, sys, usr = build_summary_prompt(result_df)
+        with st.spinner("AI 分析中…"):
+            summ = _gemini_generate_cached(ck, sys, usr)
+        st.write(summ)
+
 
     # 再考一次（重置旗標）
     if st.button("🔁 再考一次", type="secondary"):
