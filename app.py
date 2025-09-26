@@ -38,8 +38,25 @@ def _hash(s: str) -> str:
 # -----------------------------
 # Page setup
 # -----------------------------
-st.set_page_config(page_title="模擬考試機器人", layout="wide")
-st.title("📘 模擬考試機器人（GitHub 題庫 + Gemini AI）")
+st.set_page_config(page_title="錠嵂AI考照", layout="wide")
+st.title(" 錠嵂AI考照機器人")
+with st.expander("📖 使用說明", expanded=True):
+    st.markdown("""
+    歡迎使用 **錠嵂保經AI模擬考試機器人** 🎉
+
+    **操作方式：**
+    1. 在左側設定抽題數量、是否隨機打亂題目/選項。
+    2. 點擊 🚀 開始考試，進入答題畫面。
+    3. 答題完成後，按「📥 交卷並看成績」查看分數與詳解。
+    4. 若啟用 AI 助教，可使用：
+       - 💡 AI 提示：答題時給予思考方向。
+       - 🧠 AI 詳解：交卷後提供逐題解析。
+       - 📊 AI 總結：考後提供弱項分析與建議。
+    5. 可於結果頁下載作答明細（CSV）。
+
+    ⚠️ 請注意：管理員可於側欄 **題庫管理** 上傳或切換題庫。
+    """)
+
 
 # =========================================================
 # GitHub 後台上傳／切換：核心工具（在 Streamlit Secrets 設定）
@@ -391,14 +408,16 @@ def sample_paper(df, n):
     for _, r in rows.iterrows():
         # 建立 (label, text) 選項
         choices = []
-        for idx, col in enumerate(option_cols):
-            val = str(r[col]).strip()
-            if val:
-                lab = chr(ord('A') + idx)
-                choices.append((lab, val))
+        texts = [str(r[col]).strip() for col in option_cols if str(r[col]).strip()]
 
         if shuffle_options:
-            random.shuffle(choices)
+            random.shuffle(texts)
+        
+        # 無論是否打亂，標籤都固定從 A 開始編
+        for idx, txt in enumerate(texts):
+            lab = chr(ord('A') + idx)
+            choices.append((lab, txt))
+
 
         # 正解（集合）
         ans = set(str(r.get("Answer", "")).upper()) if str(r.get("Answer","")).strip() else set()
