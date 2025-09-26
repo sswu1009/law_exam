@@ -547,28 +547,29 @@ elif st.session_state.started and st.session_state.paper and st.session_state.sh
 
     # === 題目詳解（依作答結果上色 + 展開詳解） ===
     st.subheader("🧠 AI 詳解（逐題，依作答結果著色）")
-    
+
     answers_key = "answers"
-    
+
     def _fmt_letters(letters_set: set[str]) -> str:
         return ", ".join(sorted(list(letters_set))) if letters_set else "(未作答)"
-    
+
     for i, q in enumerate(st.session_state.paper, start=1):
         gold = set(q["Answer"])
         pred = st.session_state.get(answers_key, {}).get(q["ID"], set())
         is_correct = (pred == gold)
-    
+
         # 顏色：綠=正確、紅=錯誤
-        bg     = "#eaf7ee" if is_correct else "#fdecea"   # 淺綠 / 淺紅
         border = "#34a853" if is_correct else "#d93025"   # 綠 / 紅
+        glow   = "0 0 12px"   # 霓虹強度
         title  = f"Q{i}｜{'✅ 正確' if is_correct else '❌ 錯誤'}｜你的答案：{_fmt_letters(pred)}"
-    
-        # 外層彩色框
+
+        # 外層霓虹框（透明底 + 外框 + glow）
         st.markdown(
             f"""
             <div style="
                 border:2px solid {border};
-                background:{bg};
+                box-shadow:{glow} {border};
+                background:transparent;
                 border-radius:12px;
                 padding:12px 16px;
                 margin:10px 0;
@@ -578,6 +579,7 @@ elif st.session_state.started and st.session_state.paper and st.session_state.sh
             """,
             unsafe_allow_html=True
         )
+
     
         # 展開詳解
         with st.expander("展開詳解"):
