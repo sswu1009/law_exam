@@ -77,7 +77,7 @@ BANKS_DIR    = st.secrets.get("BANKS_DIR", "banks")
 POINTER_FILE = st.secrets.get("POINTER_FILE", "bank_pointer.json")
 
 # 類型清單與資料夾命名
-BANK_TYPES = ["產險", "外幣", "投資型"]
+BANK_TYPES = ["人身", "外幣", "投資型"]
 def _type_dir(t: str) -> str:
     # banks/產險、banks/外幣、banks/投資型
     return f"{BANKS_DIR}/{t}"
