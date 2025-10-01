@@ -545,6 +545,8 @@ elif st.session_state.started and st.session_state.paper and st.session_state.sh
     csv_bytes = result_df.to_csv(index=False).encode("utf-8-sig")
     st.download_button("⬇️ 下載作答明細（CSV）", data=csv_bytes, file_name="exam_results.csv", mime="text/csv")
 
+
+    
     # === 題目詳解（依作答結果上色 + 展開詳解） ===
     st.subheader("🧠 AI 詳解（逐題，依作答結果著色）")
 
@@ -614,18 +616,18 @@ elif st.session_state.started and st.session_state.paper and st.session_state.sh
                     with st.spinner("AI 產生詳解中…"):
                         expl = _gemini_generate_cached(ck, sys, usr)
                     st.success(expl)
-
-# === 📊 AI 考後總結（整份考卷） ===
-if use_ai:
-    st.subheader("📊 AI 考後總結")
-    if st.button("產出弱項分析與建議", key="ai_summary_btn"):
-        ck, sys, usr = build_summary_prompt(result_df)
-        with st.spinner("AI 分析中…"):
-            summ = _gemini_generate_cached(ck, sys, usr)
-        st.write(summ)
-
-
-    # 再考一次（重置旗標）
+                    
+    # === 📊 AI 考後總結（整份考卷） ===
+    if use_ai:
+        st.subheader("📊 AI 考後總結")
+        if st.button("產出弱項分析與建議", key="ai_summary_btn"):
+            ck, sys, usr = build_summary_prompt(result_df)
+            with st.spinner("AI 分析中…"):
+                summ = _gemini_generate_cached(ck, sys, usr)
+            st.write(summ)
+    
+    
+        # 再考一次（重置旗標）
     if st.button("🔁 再考一次", type="secondary"):
         st.session_state.paper = None
         st.session_state.start_ts = None
@@ -635,7 +637,6 @@ if use_ai:
         st.session_state.results_df = None
         st.session_state.score_tuple = None
         st.rerun()
-
 
 # -----------------------------
 # 題庫管理（管理者）
