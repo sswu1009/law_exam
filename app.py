@@ -696,7 +696,7 @@ if st.session_state.started and st.session_state.paper and not st.session_state.
         st.session_state.results_df = pd.DataFrame.from_records(records)
         st.session_state.score_tuple = (correct_count, len(paper), score_pct)
         st.session_state.show_results = True
-        st.experimental_rerun()
+        st.rerun()
 
 elif st.session_state.started and st.session_state.paper and st.session_state.show_results:
     # ===== 結果頁 =====
@@ -789,7 +789,7 @@ elif st.session_state.started and st.session_state.paper and st.session_state.sh
         st.session_state.show_results = False
         st.session_state.results_df = None
         st.session_state.score_tuple = None
-        st.experimental_rerun()
+        st.rerun()
 
 
 # -----------------------------
