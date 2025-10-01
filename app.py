@@ -561,39 +561,58 @@ def sample_paper(df, n):
     if n <= 0:
         return []
 
+    # 先抽題、再依需求打亂題目順序
     rows = df.sample(n=n, replace=False, random_state=random.randint(0, 1_000_000))
     if random_order:
         rows = rows.sample(frac=1, random_state=random.randint(0, 1_000_000))
 
     questions = []
     for _, r in rows.iterrows():
-        # 建立 (label, text) 選項
-        choices = []
-        texts = [str(r[col]).strip() for col in option_cols if str(r[col]).strip()]
+        # 1) 以「原始標籤」建立清單：[(A, txtA), (B, txtB), ...]，只收非空選項
+        items = []
+        for i, col in enumerate(option_cols):
+            txt = str(r.get(col, "")).strip()
+            if txt:
+                orig_lab = chr(ord('A') + i)  # 原始（未打亂）標籤
+                items.append((orig_lab, txt))
 
+        # 2) 如需就地打亂（保留 orig_lab）
         if shuffle_options:
-            random.shuffle(texts)
+            random.shuffle(items)
 
-        # 無論是否打亂，標籤都固定從 A 開始編
-        for idx, txt in enumerate(texts):
-            lab = chr(ord('A') + idx)
-            choices.append((lab, txt))
+        # 3) 產生新選項與映射：原始標籤 -> 新標籤
+        choices = []
+        orig_to_new = {}
+        for idx, (orig_lab, txt) in enumerate(items):
+            new_lab = chr(ord('A') + idx)    # 新標籤（展示用）
+            choices.append((new_lab, txt))
+            orig_to_new[orig_lab] = new_lab
 
-        # 正解（集合）
-        ans = set(str(r.get("Answer", "")).upper()) if str(r.get("Answer","")).strip() else set()
+        # 4) 讀取正解（原始字母），同步映射成「新標籤」
+        raw_ans = str(r.get("Answer", "")).upper().strip()
+        orig_ans_letters = set(raw_ans) if raw_ans else set()
+        # 僅保留存在的原始標籤，並轉成新標籤
+        new_ans = {orig_to_new[a] for a in orig_ans_letters if a in orig_to_new}
 
+        # 5) 題目型態
+        qtype = str(r.get("Type", "SC")).upper()
+
+        # 6) 組裝題目
         questions.append({
             "ID": r["ID"],
             "Question": r["Question"],
-            "Type": str(r.get("Type","SC")).upper(),
-            "Choices": choices,            # list[(label, text)]
-            "Answer": ans,                 # set of letters
+            "Type": qtype,
+            "Choices": choices,                # [(新標籤, 文字)]
+            "Answer": new_ans,                 # {新標籤集合}
             "Explanation": r.get("Explanation", ""),
             "Image": r.get("Image", ""),
             "Tag": r.get("Tag", ""),
+            # 若你有用多工作表功能，這兩行能把來源帶到結果表
+            "SourceFile": r.get("SourceFile", ""),
+            "SourceSheet": r.get("SourceSheet", ""),
         })
-    return questions
 
+    return questions
 # 啟考（建立試卷 & 狀態）
 if start_btn:
     st.session_state.paper = sample_paper(filtered, int(num_q))
