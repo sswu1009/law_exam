@@ -50,11 +50,11 @@ with st.expander("📖 使用說明", expanded=True):
     3. 答題完成後，按「📥 交卷並看成績」查看分數與詳解。
     4. 若啟用 AI 助教，可使用：
        - 💡 AI 提示：答題時給予思考方向。
-       - 🧠 AI 詳解：交卷後提供逐題解析。
-       - 📊 AI 總結：考後提供弱項分析與建議。
+       - 🤖 AI 詳解：交卷後提供逐題解析。
+       - 📊 AI 總結：**交卷後**提供弱項分析與建議。
     5. 可於結果頁下載作答明細（CSV）。
 
-    ⚠️ 請注意：管理員可於側欄 **題庫管理** 上傳或切換題庫。
+    ⚠️ 管理者可於側欄 **題庫管理** 上傳或切換題庫。
     """)
 
 
@@ -67,7 +67,7 @@ with st.expander("📖 使用說明", expanded=True):
 #   BANKS_DIR：題庫資料夾，預設 "banks"
 #   POINTER_FILE：指標檔，預設 "bank_pointer.json"
 #   ADMIN_PASSWORD：管理密碼
-#   （可選）BANK_FILE：初次啟動的 fallback（例如 "banks/exam_bank.xlsx"）
+#   （可選）BANK_FILE：舊版單題庫 fallback（例如 "banks/exam_bank.xlsx"）
 # =========================================================
 GH_OWNER     = st.secrets.get("REPO_OWNER")
 GH_REPO      = st.secrets.get("REPO_NAME")
@@ -75,6 +75,12 @@ GH_BRANCH    = st.secrets.get("REPO_BRANCH", "main")
 GH_TOKEN     = st.secrets.get("GH_TOKEN")
 BANKS_DIR    = st.secrets.get("BANKS_DIR", "banks")
 POINTER_FILE = st.secrets.get("POINTER_FILE", "bank_pointer.json")
+
+# 類型清單與資料夾命名
+BANK_TYPES = ["產險", "外幣", "投資型"]
+def _type_dir(t: str) -> str:
+    # banks/產險、banks/外幣、banks/投資型
+    return f"{BANKS_DIR}/{t}"
 
 def _gh_headers():
     h = {"Accept": "application/vnd.github+json"}
@@ -115,47 +121,64 @@ def _gh_download_bytes(path):
     raw_url = f"https://raw.githubusercontent.com/{GH_OWNER}/{GH_REPO}/{GH_BRANCH}/{path}"
     return requests.get(raw_url, headers=_gh_headers()).content
 
-def get_current_bank_path():
-    """讀取指標檔，取得目前生效題庫路徑"""
+# ---- 指標檔（新版相容舊版） ----
+def _read_pointer():
     try:
         data = _gh_download_bytes(POINTER_FILE)
-        conf = json.loads(data.decode("utf-8"))
-        path = conf.get("path")
-        if path:
-            return path
+        return json.loads(data.decode("utf-8"))
     except Exception:
-        pass
-    # fallback：Secrets 指定或預設 banks/exam_bank.xlsx
-    return st.secrets.get("BANK_FILE", f"{BANKS_DIR}/exam_bank.xlsx")
+        return {}
 
-def set_current_bank_path(path):
-    """更新指標檔，切換目前題庫"""
-    if not path.startswith(f"{BANKS_DIR}/"):
-        path = f"{BANKS_DIR}/{path}"
-    conf = {"path": path}
+def _write_pointer(obj: dict):
     _gh_put_file(
         POINTER_FILE,
-        json.dumps(conf, ensure_ascii=False, indent=2).encode("utf-8"),
-        f"set current bank -> {path}",
+        json.dumps(obj, ensure_ascii=False, indent=2).encode("utf-8"),
+        "update bank pointers"
     )
-    _gh_download_bytes.clear()  # 清快取
+    _gh_download_bytes.clear()
 
-def load_bank_from_github(load_bank_fn):
-    """下載目前題庫 → 丟進原本的 load_bank(...)"""
-    bank_path = get_current_bank_path()
-    data = _gh_download_bytes(bank_path)
-    df = load_bank_fn(BytesIO(data))
-    st.caption(f"使用固定題庫（GitHub）：{bank_path}")
-    return df
+def get_current_bank_path(bank_type: str | None = None):
+    """
+    回傳某類型目前題庫 path。
+    - 新格式：{"current": {"產險": "...xlsx", "外幣": "...xlsx", "投資型": "...xlsx"}}
+    - 舊格式：{"path": "...xlsx"} 相容（未指定 bank_type 時回舊值）
+    - 若該類型未設定，回傳 fallback（Secrets 的 BANK_FILE 或 banks/exam_bank.xlsx）
+    """
+    conf = _read_pointer()
+    current = conf.get("current")
+    if isinstance(current, dict):
+        if bank_type:
+            p = current.get(bank_type)
+            if p:
+                return p
+    # 舊格式 fallback（僅在未指定類型時）
+    legacy = conf.get("path")
+    if legacy and not bank_type:
+        return legacy
+    return st.secrets.get("BANK_FILE", f"{BANKS_DIR}/exam_bank.xlsx")
 
-def list_bank_files():
-    """列出 banks/ 下的 .xlsx 題庫清單"""
+def set_current_bank_path(bank_type: str, path: str):
+    """設定某類型目前題庫路徑（自動補上 banks/<type>/ 前綴）"""
+    if not path.startswith(f"{BANKS_DIR}/"):
+        path = f"{_type_dir(bank_type)}/{path}"
+    conf = _read_pointer()
+    if "current" not in conf or not isinstance(conf.get("current"), dict):
+        conf["current"] = {}
+    conf["current"][bank_type] = path
+    _write_pointer(conf)
+
+def list_bank_files(bank_type: str | None = None):
+    """列出 banks/ 或 banks/<type>/ 下的 .xlsx 題庫清單"""
     try:
-        items = _gh_api(f"contents/{BANKS_DIR}", params={"ref": GH_BRANCH})
-        return [it["path"] for it in items if it["type"] == "file" and it["name"].lower().endswith(".xlsx")]
+        if bank_type:
+            folder = _type_dir(bank_type)
+            items = _gh_api(f"contents/{folder}", params={"ref": GH_BRANCH})
+            return [it["path"] for it in items if it["type"] == "file" and it["name"].lower().endswith(".xlsx")]
+        else:
+            items = _gh_api(f"contents/{BANKS_DIR}", params={"ref": GH_BRANCH})
+            return [it["path"] for it in items if it["type"] == "file" and it["name"].lower().endswith(".xlsx")]
     except Exception:
         return []
-
 
 # -----------------------------
 # AI 提示詞建構（優先參考題庫「解答說明 / Explanation」）
@@ -315,6 +338,41 @@ def load_bank(file_like):
         st.exception(e)
         return None
 
+# --- 多檔載入器（可合併類型下全部 xlsx） ---
+def load_banks_from_github(load_bank_fn, paths: list[str]) -> pd.DataFrame | None:
+    """一次載入多個 xlsx 並合併（欄位需一致或相容）"""
+    dfs = []
+    for p in paths:
+        try:
+            data = _gh_download_bytes(p)
+            df = load_bank_fn(BytesIO(data))
+            if df is None or df.empty:
+                continue
+            dfs.append(df)
+        except Exception:
+            continue
+    if not dfs:
+        return None
+    return pd.concat(dfs, ignore_index=True)
+
+def load_bank_from_github(load_bank_fn, bank_path_or_paths):
+    """
+    接受 str（單一檔）或 list[str]（多檔合併）
+    """
+    if isinstance(bank_path_or_paths, list):
+        df = load_banks_from_github(load_bank_fn, bank_path_or_paths)
+        if df is None:
+            st.error("題庫載入失敗或為空，請聯絡管理者。")
+            st.stop()
+        st.caption(f"使用固定題庫（GitHub 多檔合併）：{len(bank_path_or_paths)} 檔")
+        return df
+    else:
+        bank_path = bank_path_or_paths
+        data = _gh_download_bytes(bank_path)
+        df = load_bank_fn(BytesIO(data))
+        st.caption(f"使用固定題庫（GitHub）：{bank_path}")
+        return df
+
 
 # -----------------------------
 # 初始化 session 狀態
@@ -334,16 +392,15 @@ for key, default in [
         st.session_state[key] = default
 
 
-# -----------------------------
-# 載入題庫（從 GitHub）
-# -----------------------------
-st.session_state["df"] = load_bank_from_github(load_bank)
-if st.session_state["df"] is None or st.session_state["df"].empty:
-    st.error("題庫載入失敗或為空，請聯絡管理者。")
-    st.stop()
+# 顯示一些診斷資訊（僅管理者用）
+def is_admin():
+    try:
+        qp = st.query_params
+        is_q = qp.get("admin", ["0"])[0] == "1"
+    except Exception:
+        is_q = False
+    return is_q or (st.secrets.get("ADMIN", "0") == "1")
 
-bank = st.session_state["df"]
-option_cols = [c for c in bank.columns if c.lower().startswith("option") and bank[c].astype(str).str.strip().ne("").any()]
 
 # -----------------------------
 # 考試設定（側欄）
@@ -356,6 +413,41 @@ with st.sidebar:
     if not _gemini_ready():
         use_ai = False
         st.caption("未設定 GEMINI_API_KEY，AI 功能已停用。")
+
+    # === 類型與題庫選擇 ===
+    st.subheader("題庫來源")
+    pick_type = st.selectbox("選擇類型", options=BANK_TYPES, index=0)
+    merge_all = st.checkbox("合併載入此類型下所有題庫檔", value=False)
+
+    bank_source = None
+    type_files = list_bank_files(pick_type)
+
+    if merge_all:
+        bank_source = type_files  # 多檔
+        st.caption(f"將合併 {len(type_files)} 檔")
+        if not type_files:
+            st.warning(f"{pick_type} 類型目前沒有題庫檔")
+    else:
+        current_path = get_current_bank_path(pick_type)
+        # 避免 current 不在清單中時出錯
+        idx = type_files.index(current_path) if current_path in type_files and type_files else 0
+        pick_file = st.selectbox("選擇題庫檔", options=type_files or ["（尚無檔案）"], index=idx if type_files else 0)
+        bank_source = pick_file if type_files else None
+
+    # === 載入題庫（依選擇載入） ===
+    if bank_source:
+        st.session_state["df"] = load_bank_from_github(load_bank, bank_source)
+    else:
+        # 若該類型沒有檔案，嘗試最後的 fallback（僅為相容舊版或空狀態）
+        fallback_path = get_current_bank_path()  # 無類型參數 -> 舊版 path
+        st.session_state["df"] = load_bank_from_github(load_bank, fallback_path)
+
+    if st.session_state["df"] is None or st.session_state["df"].empty:
+        st.error("題庫載入失敗或為空，請聯絡管理者。")
+        st.stop()
+
+    bank = st.session_state["df"]
+    option_cols = [c for c in bank.columns if c.lower().startswith("option") and bank[c].astype(str).str.strip().ne("").any()]
 
     # 標籤篩選
     all_tags = sorted({t.strip() for tags in bank["Tag"].dropna().astype(str) for t in tags.split(";") if t.strip()})
@@ -379,18 +471,11 @@ with st.sidebar:
 
     start_btn = st.button("🚀 開始考試", type="primary")
 
-# 顯示一些診斷資訊（僅管理者用）
-def is_admin():
-    try:
-        qp = st.query_params
-        is_q = qp.get("admin", ["0"])[0] == "1"
-    except Exception:
-        is_q = False
-    return is_q or (st.secrets.get("ADMIN", "0") == "1")
-
-if is_admin():
-    st.caption(f"題庫總題數：{len(bank)}；可抽題數（經標籤篩選）：{len(filtered)}；選項欄位：{', '.join(option_cols) or '（無）'}")
-
+    # 啟考（不用 rerun，改旗標）
+    if start_btn:
+        # 若是單檔模式，選擇時順便寫回該類型 pointer（方便下次預設）
+        if not merge_all and isinstance(bank_source, str):
+            set_current_bank_path(pick_type, bank_source)
 
 # -----------------------------
 # 產生試卷
@@ -412,12 +497,11 @@ def sample_paper(df, n):
 
         if shuffle_options:
             random.shuffle(texts)
-        
+
         # 無論是否打亂，標籤都固定從 A 開始編
         for idx, txt in enumerate(texts):
             lab = chr(ord('A') + idx)
             choices.append((lab, txt))
-
 
         # 正解（集合）
         ans = set(str(r.get("Answer", "")).upper()) if str(r.get("Answer","")).strip() else set()
@@ -434,12 +518,15 @@ def sample_paper(df, n):
         })
     return questions
 
-# 啟考（不用 rerun，改旗標）
+# 啟考（建立試卷 & 狀態）
 if start_btn:
     st.session_state.paper = sample_paper(filtered, int(num_q))
     st.session_state.start_ts = time.time()
+    st.session_state.answers = {}
     st.session_state.started = True
     st.session_state.show_results = False
+    st.session_state.results_df = None
+    st.session_state.score_tuple = None
 
 
 # -----------------------------
@@ -484,7 +571,7 @@ if st.session_state.started and st.session_state.paper and not st.session_state.
 
         st.session_state[answers_key][q["ID"]] = picked_labels
 
-        # 💡 AI 提示（每題可選：不想要就刪掉整塊）
+        # 💡 AI 提示（每題可選）
         if use_ai:
             if st.button(f"💡 AI 提示（Q{idx}）", key=f"ai_hint_{idx}"):
                 ck, sys, usr = build_hint_prompt(q)
@@ -494,6 +581,7 @@ if st.session_state.started and st.session_state.paper and not st.session_state.
 
         st.divider()
 
+    # 交卷
     submitted = st.button("📥 交卷並看成績", use_container_width=True)
     timeup = (st.session_state.time_limit > 0 and time.time() - st.session_state.start_ts >= st.session_state.time_limit)
 
@@ -531,7 +619,7 @@ if st.session_state.started and st.session_state.paper and not st.session_state.
         st.session_state.results_df = pd.DataFrame.from_records(records)
         st.session_state.score_tuple = (correct_count, len(paper), score_pct)
         st.session_state.show_results = True
-        st.rerun()
+        st.experimental_rerun()
 
 elif st.session_state.started and st.session_state.paper and st.session_state.show_results:
     # ===== 結果頁 =====
@@ -545,8 +633,6 @@ elif st.session_state.started and st.session_state.paper and st.session_state.sh
     csv_bytes = result_df.to_csv(index=False).encode("utf-8-sig")
     st.download_button("⬇️ 下載作答明細（CSV）", data=csv_bytes, file_name="exam_results.csv", mime="text/csv")
 
-
-    
     # === 題目詳解（依作答結果上色 + 展開詳解） ===
     st.subheader("🧠 AI 詳解（逐題，依作答結果著色）")
 
@@ -582,7 +668,6 @@ elif st.session_state.started and st.session_state.paper and st.session_state.sh
             unsafe_allow_html=True
         )
 
-    
         # 展開詳解
         with st.expander("展開詳解"):
             # 題目
@@ -590,7 +675,7 @@ elif st.session_state.started and st.session_state.paper and st.session_state.sh
                 f"<div style='white-space: pre-wrap'><strong>題目：</strong>{q['Question']}</div>",
                 unsafe_allow_html=True
             )
-    
+
             # 選項（同時標註你的選擇與正解）
             mapping = {lab: txt for lab, txt in q["Choices"]}
             st.markdown("**選項：**")
@@ -601,14 +686,14 @@ elif st.session_state.started and st.session_state.paper and st.session_state.sh
                 if lab in gold:
                     tag += " ✅"
                 st.markdown(f"- **{lab}**. {txt} {tag}")
-    
+
             # 正解
             st.markdown(f"**正解：** {_fmt_letters(gold)}")
-    
+
             # 題庫詳解（若有）
             if str(q.get("Explanation", "")).strip():
                 st.info(f"📖 題庫詳解：{q['Explanation']}")
-    
+
             # AI 詳解（每題各按一次，結果顯示在本題下）
             if use_ai:
                 if st.button(f"🤖 產生 AI 詳解（Q{i}）", key=f"ai_explain_colored_{i}"):
@@ -616,8 +701,8 @@ elif st.session_state.started and st.session_state.paper and st.session_state.sh
                     with st.spinner("AI 產生詳解中…"):
                         expl = _gemini_generate_cached(ck, sys, usr)
                     st.success(expl)
-                    
-    # === 📊 AI 考後總結（整份考卷） ===
+
+    # === 📊 AI 考後總結（僅結果頁顯示） ===
     if use_ai:
         st.subheader("📊 AI 考後總結")
         if st.button("產出弱項分析與建議", key="ai_summary_btn"):
@@ -625,9 +710,8 @@ elif st.session_state.started and st.session_state.paper and st.session_state.sh
             with st.spinner("AI 分析中…"):
                 summ = _gemini_generate_cached(ck, sys, usr)
             st.write(summ)
-    
-    
-        # 再考一次（重置旗標）
+
+    # 再考一次（重置旗標）——建議放在結果頁內
     if st.button("🔁 再考一次", type="secondary"):
         st.session_state.paper = None
         st.session_state.start_ts = None
@@ -636,7 +720,8 @@ elif st.session_state.started and st.session_state.paper and st.session_state.sh
         st.session_state.show_results = False
         st.session_state.results_df = None
         st.session_state.score_tuple = None
-        st.rerun()
+        st.experimental_rerun()
+
 
 # -----------------------------
 # 題庫管理（管理者）
@@ -655,28 +740,30 @@ with st.sidebar.expander("🛠 題庫管理（管理者）", expanded=False):
 
     if st.session_state.admin_ok:
         st.write("### 上傳新題庫")
+        up_type = st.selectbox("上傳到哪個類型？", options=BANK_TYPES, index=0)
         up = st.file_uploader("選擇 Excel 題庫（.xlsx）", type=["xlsx"])
-        name = st.text_input("儲存檔名（僅檔名，不含資料夾）", value="law_exam.xlsx")
-        set_now = st.checkbox("上傳後設為目前題庫", value=True)
+        name = st.text_input("儲存檔名（僅檔名，不含資料夾）", value="bank.xlsx")
+        set_now = st.checkbox("上傳後設為該類型目前題庫", value=True)
 
         if st.button("上傳"):
             if up and name:
-                dest = f"{BANKS_DIR}/{name}"
-                _gh_put_file(dest, up.getvalue(), f"upload bank {name}")
+                dest = f"{_type_dir(up_type)}/{name}"
+                _gh_put_file(dest, up.getvalue(), f"upload bank {name} -> {up_type}")
                 if set_now:
-                    set_current_bank_path(dest)
+                    set_current_bank_path(up_type, dest)
                 _gh_download_bytes.clear()
                 st.success(f"已上傳：{dest}" + ("，並已切換" if set_now else ""))
 
-        st.write("### 切換歷史題庫")
-        opts = list_bank_files()
+        st.write("### 切換歷史題庫（依類型）")
+        sel_type = st.selectbox("選擇類型", options=BANK_TYPES, index=0, key="sel_type_switch")
+        opts = list_bank_files(sel_type)
         if opts:
-            cur = get_current_bank_path()
+            cur = get_current_bank_path(sel_type)
             idx = opts.index(cur) if cur in opts else 0
-            pick = st.selectbox("選擇題庫", options=opts, index=idx)
+            pick = st.selectbox("選擇題庫", options=opts, index=idx, key="pick_bank_switch")
             if st.button("套用選擇的題庫"):
-                set_current_bank_path(pick)
+                set_current_bank_path(sel_type, pick)
                 _gh_download_bytes.clear()
-                st.success(f"已切換為：{pick}")
+                st.success(f"已切換 {sel_type} 類型為：{pick}")
         else:
-            st.info("banks/ 資料夾目前沒有 .xlsx。")
+            st.info(f"{sel_type} 目前沒有 .xlsx。")
