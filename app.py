@@ -647,6 +647,11 @@ if st.session_state.started and st.session_state.paper and not st.session_state.
     if answers_key not in st.session_state:
         st.session_state[answers_key] = {}
 
+    # 新增：每題 AI 提示的狀態儲存
+    hints_key = "hints"
+    if hints_key not in st.session_state:
+        st.session_state[hints_key] = {}
+
     for idx, q in enumerate(paper, start=1):
         st.markdown(f"### Q{idx}. {q['Question']}")
         if show_image and str(q["Image"]).strip():
@@ -655,6 +660,20 @@ if st.session_state.started and st.session_state.paper and not st.session_state.
             except Exception:
                 st.info("圖片載入失敗，請確認路徑或網址。")
 
+        # === 先顯示提示按鈕與提示（在選項之上）===
+        if use_ai:
+            # 按一下就寫進 session_state，之後每次重跑都會看到
+            if st.button(f"💡 看不懂題目嗎?AI來提示你（Q{idx}）", key=f"ai_hint_{idx}"):
+                ck, sys, usr = build_hint_prompt(q)
+                with st.spinner("AI 產生提示中…"):
+                    hint = _gemini_generate_cached(ck, sys, usr)
+                st.session_state[hints_key][q["ID"]] = hint
+
+            # 若已有提示，顯示在題目下、選項上
+            if q["ID"] in st.session_state[hints_key]:
+                st.info(st.session_state[hints_key][q["ID"]])
+
+        # === 再顯示選項 ===
         display = [f"{lab}. {txt}" for lab, txt in q["Choices"]]
 
         if q["Type"] == "MC":
@@ -665,14 +684,6 @@ if st.session_state.started and st.session_state.paper and not st.session_state.
             picked_labels = {choice.split(".", 1)[0]} if choice else set()
 
         st.session_state[answers_key][q["ID"]] = picked_labels
-
-        # 💡 AI 提示（每題可選）
-        if use_ai:
-            if st.button(f"💡 AI 提示（Q{idx}）", key=f"ai_hint_{idx}"):
-                ck, sys, usr = build_hint_prompt(q)
-                with st.spinner("AI 產生提示中…"):
-                    hint = _gemini_generate_cached(ck, sys, usr)
-                st.info(hint)
 
         st.divider()
 
