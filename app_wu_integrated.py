@@ -26,6 +26,7 @@ def _gemini_client():
 
 @st.cache_data(show_spinner=False)
 def _gemini_generate_cached(cache_key: str, system_msg: str, user_msg: str) -> str:
+    """以 cache_key 做為快取 key 參數之一（交由 Streamlit 快取管理）"""
     model = _gemini_client()
     prompt = f"[系統指示]\n{system_msg}\n\n[使用者需求]\n{user_msg}".strip()
     resp = model.generate_content(prompt)
@@ -60,14 +61,6 @@ with st.expander("📖 使用說明", expanded=True):
 
 # =========================================================
 # GitHub 後台設定（放在 Streamlit Secrets）
-#   GH_TOKEN：Personal Access Token（需 repo 權限）
-#   REPO_OWNER：GitHub 帳號
-#   REPO_NAME：repo 名稱
-#   REPO_BRANCH：main（預設）
-#   BANKS_DIR：題庫資料夾，這裡預設 "bank"（你的實際結構）
-#   POINTER_FILE：指標檔，預設 "bank_pointer.json"
-#   ADMIN_PASSWORD：管理密碼
-#   （可選）BANK_FILE：舊版單題庫 fallback（例如 "bank/exam_bank.xlsx"）
 # =========================================================
 GH_OWNER     = st.secrets.get("REPO_OWNER")
 GH_REPO      = st.secrets.get("REPO_NAME")
@@ -483,10 +476,10 @@ def is_admin():
 with st.sidebar:
     st.header("⚙️ 考試設定")
 
-    
     # 出題模式切換
     exam_mode = st.radio('出題模式', ['練習模式', '模擬考模式'], index=1)
-# AI 開關
+
+    # AI 開關
     use_ai = st.toggle("啟用 AI 助教（Gemini）", value=True)
     if not _gemini_ready():
         use_ai = False
@@ -621,9 +614,6 @@ def sample_paper(df, n):
 # 練習模式（逐題出題 + AI提示 + 即時判分 + 手動下一題）
 # ============================================================
 def show_practice_mode(paper, use_ai=True, show_image=True):
-    import streamlit as st
-    import time
-
     # 初始化進度
     if "practice_idx" not in st.session_state:
         st.session_state.practice_idx = 0
@@ -689,24 +679,25 @@ def show_practice_mode(paper, use_ai=True, show_image=True):
             st.rerun()
 
 # 啟考（建立試卷 & 狀態）
-if start_btn:
-    st.session_state.paper = sample_paper(filtered, int(num_q))
-    st.session_state.start_ts = time.time()
-    st.session_state.answers = {}
-    st.session_state.started = True
-    st.session_state.show_results = False
-    st.session_state.results_df = None
-    st.session_state.score_tuple = None
-
+with st.sidebar:
+    if 'start_btn' in locals() and start_btn:
+        st.session_state.paper = sample_paper(filtered, int(num_q))
+        st.session_state.start_ts = time.time()
+        st.session_state.answers = {}
+        st.session_state.started = True
+        st.session_state.show_results = False
+        st.session_state.results_df = None
+        st.session_state.score_tuple = None
 
 # -----------------------------
 # 出題頁（依模式分流）
 # -----------------------------
 if st.session_state.started and st.session_state.paper and not st.session_state.show_results:
     if 'exam_mode' in locals() and exam_mode == '練習模式':
+        # ===== 練習模式 =====
         show_practice_mode(st.session_state.paper, use_ai=use_ai, show_image=show_image)
     else:
-    # ===== 出題頁 =====
+        # ===== 模擬考（整卷） =====
         paper = st.session_state.paper
 
         col_left, col_right = st.columns([1,1])
@@ -725,86 +716,84 @@ if st.session_state.started and st.session_state.paper and not st.session_state.
         if answers_key not in st.session_state:
             st.session_state[answers_key] = {}
 
-    # 新增：每題 AI 提示的狀態儲存
-    hints_key = "hints"
-    if hints_key not in st.session_state:
-        st.session_state[hints_key] = {}
+        # 新增：每題 AI 提示的狀態儲存
+        hints_key = "hints"
+        if hints_key not in st.session_state:
+            st.session_state[hints_key] = {}
 
-    for idx, q in enumerate(paper, start=1):
-        st.markdown(f"### Q{idx}. {q['Question']}")
-        if show_image and str(q["Image"]).strip():
-            try:
-                st.image(q["Image"], use_container_width=True)
-            except Exception:
-                st.info("圖片載入失敗，請確認路徑或網址。")
+        for idx, q in enumerate(paper, start=1):
+            st.markdown(f"### Q{idx}. {q['Question']}")
+            if show_image and str(q["Image"]).strip():
+                try:
+                    st.image(q["Image"], use_container_width=True)
+                except Exception:
+                    st.info("圖片載入失敗，請確認路徑或網址。")
 
-        # === 先顯示提示按鈕與提示（在選項之上）===
-        if use_ai:
-            # 按一下就寫進 session_state，之後每次重跑都會看到
-            if st.button(f"💡 看不懂題目嗎?AI來提示你（Q{idx}）", key=f"ai_hint_{idx}"):
-                ck, sys, usr = build_hint_prompt(q)
-                with st.spinner("AI 產生提示中…"):
-                    hint = _gemini_generate_cached(ck, sys, usr)
-                st.session_state[hints_key][q["ID"]] = hint
+            # === 先顯示提示按鈕與提示（在選項之上）===
+            if use_ai:
+                if st.button(f"💡 看不懂題目嗎?AI來提示你（Q{idx}）", key=f"ai_hint_{idx}"):
+                    ck, sys, usr = build_hint_prompt(q)
+                    with st.spinner("AI 產生提示中…"):
+                        hint = _gemini_generate_cached(ck, sys, usr)
+                    st.session_state[hints_key][q["ID"]] = hint
 
-            # 若已有提示，顯示在題目下、選項上
-            if q["ID"] in st.session_state[hints_key]:
-                st.info(st.session_state[hints_key][q["ID"]])
+                if q["ID"] in st.session_state[hints_key]:
+                    st.info(st.session_state[hints_key][q["ID"]])
 
-        # === 再顯示選項 ===
-        display = [f"{lab}. {txt}" for lab, txt in q["Choices"]]
+            # === 再顯示選項 ===
+            display = [f"{lab}. {txt}" for lab, txt in q["Choices"]]
 
-        if q["Type"] == "MC":
-            picked = st.multiselect("（複選）選擇所有正確選項：", options=display, key=f"q_{idx}")
-            picked_labels = {opt.split(".", 1)[0] for opt in picked}
-        else:
-            choice = st.radio("（單選）選擇一個答案：", options=display, key=f"q_{idx}")
-            picked_labels = {choice.split(".", 1)[0]} if choice else set()
+            if q["Type"] == "MC":
+                picked = st.multiselect("（複選）選擇所有正確選項：", options=display, key=f"q_{idx}")
+                picked_labels = {opt.split(".", 1)[0] for opt in picked}
+            else:
+                choice = st.radio("（單選）選擇一個答案：", options=display, key=f"q_{idx}")
+                picked_labels = {choice.split(".", 1)[0]} if choice else set()
 
-        st.session_state[answers_key][q["ID"]] = picked_labels
+            st.session_state[answers_key][q["ID"]] = picked_labels
 
-        st.divider()
+            st.divider()
 
-    # 交卷
-    submitted = st.button("📥 交卷並看成績", use_container_width=True)
-    timeup = (st.session_state.time_limit > 0 and time.time() - st.session_state.start_ts >= st.session_state.time_limit)
+        # 交卷
+        submitted = st.button("📥 交卷並看成績", use_container_width=True)
+        timeup = (st.session_state.time_limit > 0 and time.time() - st.session_state.start_ts >= st.session_state.time_limit)
 
-    if submitted or timeup:
-        # 判卷
-        records = []
-        correct_count = 0
-        for q in paper:
-            gold = set(q["Answer"])
-            pred = st.session_state[answers_key].get(q["ID"], set())
-            is_correct = (pred == gold)
-            correct_count += int(is_correct)
+        if submitted or timeup:
+            # 判卷
+            records = []
+            correct_count = 0
+            for q in paper:
+                gold = set(q["Answer"])
+                pred = st.session_state[answers_key].get(q["ID"], set())
+                is_correct = (pred == gold)
+                correct_count += int(is_correct)
 
-            mapping = {lab: txt for lab, txt in q["Choices"]}
-            def render_set(ss):
-                if not ss:
-                    return "(未作答)"
-                ordered = sorted(list(ss))
-                return ", ".join([f"{lab}. {mapping.get(lab, '')}" for lab in ordered])
+                mapping = {lab: txt for lab, txt in q["Choices"]}
+                def render_set(ss):
+                    if not ss:
+                        return "(未作答)"
+                    ordered = sorted(list(ss))
+                    return ", ".join([f"{lab}. {mapping.get(lab, '')}" for lab in ordered])
 
-            records.append({
-                "ID": q["ID"],
-                "Tag": q.get("Tag", ""),
-                "Question": q["Question"],
-                "Your Answer": "".join(sorted(list(pred))) or "",
-                "Your Answer (text)": render_set(pred),
-                "Correct": "".join(sorted(list(gold))),
-                "Correct (text)": render_set(gold),
-                "Result": "✅ 正確" if is_correct else "❌ 錯誤",
-                "Explanation": q.get("Explanation", ""),
-                "SourceFile": q.get("SourceFile","") if isinstance(q.get("SourceFile",""), str) else "",
-                "SourceSheet": q.get("SourceSheet","") if isinstance(q.get("SourceSheet",""), str) else "",
-            })
+                records.append({
+                    "ID": q["ID"],
+                    "Tag": q.get("Tag", ""),
+                    "Question": q["Question"],
+                    "Your Answer": "".join(sorted(list(pred))) or "",
+                    "Your Answer (text)": render_set(pred),
+                    "Correct": "".join(sorted(list(gold))),
+                    "Correct (text)": render_set(gold),
+                    "Result": "✅ 正確" if is_correct else "❌ 錯誤",
+                    "Explanation": q.get("Explanation", ""),
+                    "SourceFile": q.get("SourceFile","") if isinstance(q.get("SourceFile",""), str) else "",
+                    "SourceSheet": q.get("SourceSheet","") if isinstance(q.get("SourceSheet",""), str) else "",
+                })
 
-        score_pct = round(100 * correct_count / len(paper), 2)
-        st.session_state.results_df = pd.DataFrame.from_records(records)
-        st.session_state.score_tuple = (correct_count, len(paper), score_pct)
-        st.session_state.show_results = True
-        st.rerun()
+            score_pct = round(100 * correct_count / len(paper), 2)
+            st.session_state.results_df = pd.DataFrame.from_records(records)
+            st.session_state.score_tuple = (correct_count, len(paper), score_pct)
+            st.session_state.show_results = True
+            st.rerun()
 
 elif st.session_state.started and st.session_state.paper and st.session_state.show_results:
     # ===== 結果頁 =====
