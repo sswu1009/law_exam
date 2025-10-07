@@ -483,7 +483,10 @@ def is_admin():
 with st.sidebar:
     st.header("⚙️ 考試設定")
 
-    # AI 開關
+    
+    # 出題模式切換
+    exam_mode = st.radio('出題模式', ['練習模式', '模擬考模式'], index=1)
+# AI 開關
     use_ai = st.toggle("啟用 AI 助教（Gemini）", value=True)
     if not _gemini_ready():
         use_ai = False
@@ -613,6 +616,78 @@ def sample_paper(df, n):
         })
 
     return questions
+
+# ============================================================
+# 練習模式（逐題出題 + AI提示 + 即時判分 + 手動下一題）
+# ============================================================
+def show_practice_mode(paper, use_ai=True, show_image=True):
+    import streamlit as st
+    import time
+
+    # 初始化進度
+    if "practice_idx" not in st.session_state:
+        st.session_state.practice_idx = 0
+        st.session_state.practice_correct = 0
+        st.session_state.practice_answers = {}
+
+    i = st.session_state.practice_idx
+    q = paper[i]
+    st.markdown(f"### 第 {i+1} / {len(paper)} 題")
+    st.markdown(q["Question"])
+
+    # 圖片
+    if show_image and str(q.get("Image","")).strip():
+        try:
+            st.image(q["Image"], use_container_width=True)
+        except Exception:
+            st.info("圖片載入失敗。")
+
+    # AI 提示（考前提示，非詳解）
+    if use_ai:
+        if st.button(f"💡 看不懂題目嗎？AI提示（Q{i+1}）", key=f"ai_hint_practice_{i}"):
+            ck, sys, usr = build_hint_prompt(q)
+            with st.spinner("AI 產生提示中…"):
+                hint = _gemini_generate_cached(ck, sys, usr)
+            st.session_state.setdefault("hints", {})[q["ID"]] = hint
+        if q["ID"] in st.session_state.get("hints", {}):
+            st.info(st.session_state["hints"][q["ID"]])
+
+    # 選項
+    display = [f"{lab}. {txt}" for lab, txt in q["Choices"]]
+    if q["Type"] == "MC":
+        picked = st.multiselect("（複選）選擇所有正確選項：", options=display, key=f"practice_pick_{i}")
+        picked_labels = {opt.split(".", 1)[0] for opt in picked}
+    else:
+        choice = st.radio("（單選）選擇一個答案：", options=display, key=f"practice_pick_{i}")
+        picked_labels = {choice.split(".", 1)[0]} if choice else set()
+
+    # 提交本題
+    if st.button("提交這題", key=f"practice_submit_{i}"):
+        gold = set(q["Answer"])
+        st.session_state.practice_answers[q["ID"]] = picked_labels
+        if picked_labels == gold:
+            st.success("✅ 答對了！")
+            st.session_state.practice_correct += 1
+        else:
+            st.error(f"❌ 答錯了。正確：{', '.join(sorted(list(gold))) or '(空)'}")
+            if str(q.get("Explanation","")).strip():
+                st.caption(f"📖 題庫詳解：{q['Explanation']}")
+
+    # 下一題/完成
+    cols = st.columns([1,1])
+    with cols[0]:
+        if st.button("➡️ 下一題", key=f"practice_next_{i}"):
+            if i < len(paper) - 1:
+                st.session_state.practice_idx += 1
+                st.rerun()
+            else:
+                st.success(f"🎉 完成練習：{st.session_state.practice_correct}/{len(paper)}")
+    with cols[1]:
+        if st.button("🔁 重新練習"):
+            for k in ["practice_idx","practice_correct","practice_answers"]:
+                st.session_state.pop(k, None)
+            st.rerun()
+
 # 啟考（建立試卷 & 狀態）
 if start_btn:
     st.session_state.paper = sample_paper(filtered, int(num_q))
@@ -625,9 +700,12 @@ if start_btn:
 
 
 # -----------------------------
-# 考試頁 / 結果頁（雙態）
+# 出題頁（依模式分流）
 # -----------------------------
 if st.session_state.started and st.session_state.paper and not st.session_state.show_results:
+    if 'exam_mode' in locals() and exam_mode == '練習模式':
+        show_practice_mode(st.session_state.paper, use_ai=use_ai, show_image=show_image)
+    else:
     # ===== 出題頁 =====
     paper = st.session_state.paper
 
