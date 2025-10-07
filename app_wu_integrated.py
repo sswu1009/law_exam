@@ -722,8 +722,8 @@ if st.session_state.started and st.session_state.paper and not st.session_state.
                     st.warning("時間到！請繳卷。")
 
         answers_key = "answers"
-    if answers_key not in st.session_state:
-        st.session_state[answers_key] = {}
+        if answers_key not in st.session_state:
+            st.session_state[answers_key] = {}
 
     # 新增：每題 AI 提示的狀態儲存
     hints_key = "hints"
