@@ -710,18 +710,18 @@ if st.session_state.started and st.session_state.paper and not st.session_state.
         paper = st.session_state.paper
 
         col_left, col_right = st.columns([1,1])
-    with col_left:
-        st.subheader("試卷")
-    with col_right:
-        if st.session_state.time_limit > 0:
-            elapsed = int(time.time() - st.session_state.start_ts)
-            remain = max(0, st.session_state.time_limit - elapsed)
-            mm, ss = divmod(remain, 60)
-            st.metric("剩餘時間", f"{mm:02d}:{ss:02d}")
-            if remain == 0:
-                st.warning("時間到！請繳卷。")
+        with col_left:
+            st.subheader("試卷")
+        with col_right:
+            if st.session_state.time_limit > 0:
+                elapsed = int(time.time() - st.session_state.start_ts)
+                remain = max(0, st.session_state.time_limit - elapsed)
+                mm, ss = divmod(remain, 60)
+                st.metric("剩餘時間", f"{mm:02d}:{ss:02d}")
+                if remain == 0:
+                    st.warning("時間到！請繳卷。")
 
-    answers_key = "answers"
+        answers_key = "answers"
     if answers_key not in st.session_state:
         st.session_state[answers_key] = {}
 
