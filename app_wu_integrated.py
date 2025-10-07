@@ -707,9 +707,9 @@ if st.session_state.started and st.session_state.paper and not st.session_state.
         show_practice_mode(st.session_state.paper, use_ai=use_ai, show_image=show_image)
     else:
     # ===== 出題頁 =====
-    paper = st.session_state.paper
+        paper = st.session_state.paper
 
-    col_left, col_right = st.columns([1,1])
+        col_left, col_right = st.columns([1,1])
     with col_left:
         st.subheader("試卷")
     with col_right:
