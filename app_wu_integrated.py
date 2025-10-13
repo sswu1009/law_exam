@@ -26,7 +26,7 @@ def _gemini_client():
 
 @st.cache_data(show_spinner=False)
 def _gemini_generate_cached(cache_key: str, system_msg: str, user_msg: str) -> str:
-    """以 cache_key 做為快取 key 參數之一（交由 Streamlit 快取管理）"""
+    """以 cache_key 做為快取 key（交由 Streamlit 管理），避免重複呼叫"""
     model = _gemini_client()
     prompt = f"[系統指示]\n{system_msg}\n\n[使用者需求]\n{user_msg}".strip()
     resp = model.generate_content(prompt)
@@ -45,15 +45,15 @@ with st.expander("📖 使用說明", expanded=True):
     st.markdown("""
     歡迎使用 **錠嵂保經AI模擬考試機器人** 🎉
 
+    **模式與 AI 助教：**
+    - **練習模式**：作答時可查看「💡 AI 提示」（可選擇是否查看）；交卷後提供「錯題 AI 分析/復盤」，並可對**錯題**逐題顯示 AI 詳解。
+    - **模擬考模式**：作答時**沒有提示**；交卷後**每題**都可顯示 AI 詳解（自選是否查看），另提供「錯題 AI 復盤」。
+
     **操作方式：**
-    1. 在左側設定抽題數量、是否隨機打亂題目/選項。
-    2. 點擊 🚀 開始考試，進入答題畫面。
-    3. 答題完成後，按「📥 交卷並看成績」查看分數與詳解。
-    4. 若啟用 AI 助教，可使用：
-       - 💡 AI 提示：答題時給予思考方向。
-       - 🤖 AI 詳解：交卷後提供逐題解析。
-       - 📊 AI 總結：**交卷後**提供弱項分析與建議。
-    5. 可於結果頁下載作答明細（CSV）。
+    1. 左側設定抽題數量、是否隨機打亂題目/選項與題庫來源。
+    2. 點擊 🚀 開始考試。
+    3. 完成後按「📥 交卷並看成績」查看分數、詳解與 AI 復盤。
+    4. 結果頁可下載作答明細（CSV）。
 
     ⚠️ 管理者可於側欄 **題庫管理** 上傳或切換題庫。
     """)
@@ -66,15 +66,12 @@ GH_OWNER     = st.secrets.get("REPO_OWNER")
 GH_REPO      = st.secrets.get("REPO_NAME")
 GH_BRANCH    = st.secrets.get("REPO_BRANCH", "main")
 GH_TOKEN     = st.secrets.get("GH_TOKEN")
-BANKS_DIR    = st.secrets.get("BANKS_DIR", "bank")   # ← 已調成 bank
+BANKS_DIR    = st.secrets.get("BANKS_DIR", "bank")
 POINTER_FILE = st.secrets.get("POINTER_FILE", "bank_pointer.json")
 
-# 類型清單（符合你的資料夾）
 BANK_TYPES   = ["人身", "投資型", "外幣"]
 
-
 def _type_dir(t: str) -> str:
-    # bank/人身、bank/投資型、bank/外幣
     return f"{BANKS_DIR}/{t}"
 
 def _gh_headers():
@@ -108,7 +105,6 @@ def _gh_api(path, method="GET", **kwargs):
     return r.json()
 
 def _gh_get_sha(path):
-    """取得檔案 SHA（PUT 更新時需要），不存在回 None"""
     try:
         j = _gh_api(f"contents/{path}", params={"ref": GH_BRANCH})
         return j.get("sha")
@@ -116,7 +112,6 @@ def _gh_get_sha(path):
         return None
 
 def _gh_put_file(path, content_bytes, message):
-    """上傳/更新檔案到 GitHub（自動建資料夾），保留版本歷史"""
     b64 = base64.b64encode(content_bytes).decode("ascii")
     payload = {"message": message, "content": b64, "branch": GH_BRANCH}
     sha = _gh_get_sha(path)
@@ -126,14 +121,12 @@ def _gh_put_file(path, content_bytes, message):
 
 @st.cache_data(ttl=300)
 def _gh_download_bytes(path):
-    """下載檔案內容（用 contents API 的 base64；備援 raw）"""
     j = _gh_api(f"contents/{path}", params={"ref": GH_BRANCH})
     if j.get("encoding") == "base64":
         return base64.b64decode(j["content"])
     raw_url = f"https://raw.githubusercontent.com/{GH_OWNER}/{GH_REPO}/{GH_BRANCH}/{path}"
     return requests.get(raw_url, headers=_gh_headers()).content
 
-# ---- 指標檔（新版相容舊版） ----
 def _read_pointer():
     try:
         data = _gh_download_bytes(POINTER_FILE)
@@ -152,12 +145,6 @@ def _write_pointer(obj: dict):
     _gh_download_bytes.clear()
 
 def get_current_bank_path(bank_type: str | None = None):
-    """
-    回傳某類型目前題庫 path。
-    - 新格式：{"current": {"人身": "...xlsx", "投資型": "...xlsx", "外幣": "...xlsx"}}
-    - 舊格式：{"path": "...xlsx"} 相容（未指定 bank_type 時回舊值）
-    - 若該類型未設定，回傳 fallback（Secrets 的 BANK_FILE 或 bank/exam_bank.xlsx）
-    """
     conf = _read_pointer()
     current = conf.get("current")
     if isinstance(current, dict):
@@ -171,7 +158,6 @@ def get_current_bank_path(bank_type: str | None = None):
     return st.secrets.get("BANK_FILE", f"{BANKS_DIR}/exam_bank.xlsx")
 
 def set_current_bank_path(bank_type: str, path: str):
-    """設定某類型目前題庫路徑（自動補上 bank/<type>/ 前綴）"""
     if not _require_gh_write_or_warn():
         return
     if not path.startswith(f"{BANKS_DIR}/"):
@@ -186,32 +172,26 @@ def set_current_bank_path(bank_type: str, path: str):
         st.warning(f"更新 {POINTER_FILE} 失敗：{e}")
 
 def _migrate_pointer_prefix_if_needed():
-    """自動將指標檔中的 'banks/' 前綴改為目前的 BANKS_DIR（bank/）。"""
     conf = _read_pointer()
     changed = False
-
     if isinstance(conf.get("path"), str) and conf["path"].startswith("banks/"):
         conf["path"] = conf["path"].replace("banks/", f"{BANKS_DIR}/", 1)
         changed = True
-
     cur = conf.get("current")
     if isinstance(cur, dict):
         for k, p in list(cur.items()):
             if isinstance(p, str) and p.startswith("banks/"):
                 cur[k] = p.replace("banks/", f"{BANKS_DIR}/", 1)
                 changed = True
-
     if changed:
         try:
             _write_pointer(conf)
         except Exception as e:
             st.warning(f"自動遷移 {POINTER_FILE} 失敗：{e}")
 
-# 啟動時先嘗試遷移
 _migrate_pointer_prefix_if_needed()
 
 def list_bank_files(bank_type: str | None = None):
-    """列出 bank/ 或 bank/<type>/ 下的 .xlsx 題庫清單"""
     try:
         if bank_type:
             folder = _type_dir(bank_type)
@@ -225,7 +205,7 @@ def list_bank_files(bank_type: str | None = None):
 
 
 # -----------------------------
-# AI 提示詞建構（優先參考題庫「解答說明 / Explanation」）
+# AI 提示/詳解/總結 Prompt
 # -----------------------------
 def build_hint_prompt(q: dict):
     sys = (
@@ -257,7 +237,7 @@ def build_explain_prompt(q: dict):
     ck = _hash("EXPL|" + q["Question"] + "|" + ans_letters)
     return ck, sys, user
 
-def build_summary_prompt(result_df):
+def build_summary_prompt(result_df: pd.DataFrame):
     sys = "你是考後診斷教練，請分析弱點與建議。"
     mini = result_df[["ID","Tag","Question","Your Answer","Correct","Result"]].head(200)
     user = f"""
@@ -268,12 +248,23 @@ def build_summary_prompt(result_df):
     ck = _hash("SUMM|" + mini.to_csv(index=False))
     return ck, sys, user
 
+def build_weak_wrong_prompt(result_df_wrong: pd.DataFrame):
+    """專針對『錯題』做復盤（主題、知識點、常見誤區、下一步建議）"""
+    sys = "你是考後復盤教練，聚焦錯題的主題與知識點，指出易錯原因與改進建議。"
+    mini = result_df_wrong[["ID","Tag","Question","Your Answer","Correct"]].head(200)
+    user = f"""
+以下為本次錯題（最多 200 題）：
+{mini.to_csv(index=False)}
+請輸出：1) 錯題主題聚類 2) 容易混淆/易錯點 3) 必背觀念 4) 接下來復習建議（條列）。
+"""
+    ck = _hash("WRONG|" + mini.to_csv(index=False))
+    return ck, sys, user
+
 
 # -----------------------------
 # 題庫讀取與正規化（支援多工作表）
 # -----------------------------
 def normalize_bank_df(df: pd.DataFrame, sheet_name: str | None = None, source_file: str | None = None) -> pd.DataFrame:
-    """把單一 DataFrame 正規化成題庫格式；若 Tag 為空則用 sheet_name 補；加上 SourceFile/SourceSheet。"""
     df = df.copy()
     df.columns = [str(c).strip() for c in df.columns]
 
@@ -354,25 +345,17 @@ def normalize_bank_df(df: pd.DataFrame, sheet_name: str | None = None, source_fi
         return cnt >= 2
     df = df[df.apply(has_two_options, axis=1)].reset_index(drop=True)
 
-    # 空 Tag 用 sheet 名補
     if "Tag" not in df.columns:
         df["Tag"] = ""
     if sheet_name:
         df["Tag"] = df["Tag"].astype(str)
         df.loc[df["Tag"].str.strip().eq(""), "Tag"] = sheet_name
 
-    # 來源追蹤
     df["SourceFile"] = (source_file or "").strip()
     df["SourceSheet"] = (sheet_name or "").strip()
-
     return df
 
 def load_bank(file_like):
-    """
-    讀取 Excel 題庫。如果有多個工作表，會把每個工作表當成一份題庫讀入並合併。
-    - 自動補 Tag＝工作表名稱（若原本 Tag 為空）
-    - 會加上 SourceFile / SourceSheet 欄位。
-    """
     try:
         xls = pd.ExcelFile(file_like)
         dfs = []
@@ -402,14 +385,13 @@ def load_bank(file_like):
             return None
 
 def load_banks_from_github(load_bank_fn, paths: list[str]) -> pd.DataFrame | None:
-    """一次載入多個 xlsx 並合併（欄位需一致或相容）"""
     dfs = []
     for p in paths:
         try:
             data = _gh_download_bytes(p)
             bio = BytesIO(data)
             try:
-                bio.name = p  # 讓 load_bank 寫入 SourceFile
+                bio.name = p
             except Exception:
                 pass
             df = load_bank_fn(bio)
@@ -423,7 +405,6 @@ def load_banks_from_github(load_bank_fn, paths: list[str]) -> pd.DataFrame | Non
     return pd.concat(dfs, ignore_index=True)
 
 def load_bank_from_github(load_bank_fn, bank_path_or_paths):
-    """接受 str（單一檔）或 list[str]（多檔合併）"""
     if isinstance(bank_path_or_paths, list):
         df = load_banks_from_github(load_bank_fn, bank_path_or_paths)
         if df is None:
@@ -461,14 +442,6 @@ for key, default in [
     if key not in st.session_state:
         st.session_state[key] = default
 
-def is_admin():
-    try:
-        qp = st.query_params
-        is_q = qp.get("admin", ["0"])[0] == "1"
-    except Exception:
-        is_q = False
-    return is_q or (st.secrets.get("ADMIN", "0") == "1")
-
 
 # -----------------------------
 # 考試設定（側欄）
@@ -476,14 +449,11 @@ def is_admin():
 with st.sidebar:
     st.header("⚙️ 考試設定")
 
-    # 出題模式切換
+    # 出題模式切換（決定 AI 助教行為）
     exam_mode = st.radio('出題模式', ['練習模式', '模擬考模式'], index=1)
-
-    # AI 開關
-    use_ai = st.toggle("啟用 AI 助教（Gemini）", value=True)
-    if not _gemini_ready():
-        use_ai = False
-        st.caption("未設定 GEMINI_API_KEY，AI 功能已停用。")
+    ai_hint_enabled_during_exam = (exam_mode == '練習模式') and _gemini_ready()
+    # 說明提示
+    st.caption("AI 助教：練習模式啟用提示；模擬考模式僅在交卷後提供逐題解析與錯題復盤。")
 
     # 類型與題庫選擇
     st.subheader("題庫來源")
@@ -508,7 +478,7 @@ with st.sidebar:
     if bank_source:
         st.session_state["df"] = load_bank_from_github(load_bank, bank_source)
     else:
-        fallback_path = get_current_bank_path()  # 舊版 path fallback
+        fallback_path = get_current_bank_path()
         st.session_state["df"] = load_bank_from_github(load_bank, fallback_path)
 
     if st.session_state["df"] is None or st.session_state["df"].empty:
@@ -540,7 +510,6 @@ with st.sidebar:
 
     start_btn = st.button("🚀 開始考試", type="primary")
 
-    # 僅在單檔模式下，把選擇寫回指標檔（避免把 list 當路徑）
     if start_btn and (not merge_all) and isinstance(bank_source, str):
         try:
             set_current_bank_path(pick_type, bank_source)
@@ -557,64 +526,53 @@ def sample_paper(df, n):
     if n <= 0:
         return []
 
-    # 先抽題、再依需求打亂題目順序
     rows = df.sample(n=n, replace=False, random_state=random.randint(0, 1_000_000))
     if random_order:
         rows = rows.sample(frac=1, random_state=random.randint(0, 1_000_000))
 
     questions = []
     for _, r in rows.iterrows():
-        # 1) 以「原始標籤」建立清單：[(A, txtA), (B, txtB), ...]，只收非空選項
         items = []
         for i, col in enumerate(option_cols):
             txt = str(r.get(col, "")).strip()
             if txt:
-                orig_lab = chr(ord('A') + i)  # 原始（未打亂）標籤
+                orig_lab = chr(ord('A') + i)
                 items.append((orig_lab, txt))
 
-        # 2) 如需就地打亂（保留 orig_lab）
         if shuffle_options:
             random.shuffle(items)
 
-        # 3) 產生新選項與映射：原始標籤 -> 新標籤
         choices = []
         orig_to_new = {}
         for idx, (orig_lab, txt) in enumerate(items):
-            new_lab = chr(ord('A') + idx)    # 新標籤（展示用）
+            new_lab = chr(ord('A') + idx)
             choices.append((new_lab, txt))
             orig_to_new[orig_lab] = new_lab
 
-        # 4) 讀取正解（原始字母），同步映射成「新標籤」
         raw_ans = str(r.get("Answer", "")).upper().strip()
         orig_ans_letters = set(raw_ans) if raw_ans else set()
-        # 僅保留存在的原始標籤，並轉成新標籤
         new_ans = {orig_to_new[a] for a in orig_ans_letters if a in orig_to_new}
 
-        # 5) 題目型態
         qtype = str(r.get("Type", "SC")).upper()
-
-        # 6) 組裝題目
         questions.append({
             "ID": r["ID"],
             "Question": r["Question"],
             "Type": qtype,
-            "Choices": choices,                # [(新標籤, 文字)]
-            "Answer": new_ans,                 # {新標籤集合}
+            "Choices": choices,
+            "Answer": new_ans,
             "Explanation": r.get("Explanation", ""),
             "Image": r.get("Image", ""),
             "Tag": r.get("Tag", ""),
-            # 若你有用多工作表功能，這兩行能把來源帶到結果表
             "SourceFile": r.get("SourceFile", ""),
             "SourceSheet": r.get("SourceSheet", ""),
         })
-
     return questions
 
+
 # ============================================================
-# 練習模式（逐題出題 + AI提示 + 即時判分 + 手動下一題）
+# 練習模式（逐題提示 + 即時判分）
 # ============================================================
-def show_practice_mode(paper, use_ai=True, show_image=True):
-    # 初始化進度
+def show_practice_mode(paper, show_image=True):
     if "practice_idx" not in st.session_state:
         st.session_state.practice_idx = 0
         st.session_state.practice_correct = 0
@@ -625,16 +583,15 @@ def show_practice_mode(paper, use_ai=True, show_image=True):
     st.markdown(f"### 第 {i+1} / {len(paper)} 題")
     st.markdown(q["Question"])
 
-    # 圖片
     if show_image and str(q.get("Image","")).strip():
         try:
             st.image(q["Image"], use_container_width=True)
         except Exception:
             st.info("圖片載入失敗。")
 
-    # AI 提示（考前提示，非詳解）
-    if use_ai:
-        if st.button(f"💡 看不懂題目嗎？AI提示（Q{i+1}）", key=f"ai_hint_practice_{i}"):
+    # 練習模式：作答時可查看「AI 提示」（非詳解）
+    if _gemini_ready():
+        if st.button(f"💡 看不懂題目嗎？AI 提示（Q{i+1}）", key=f"ai_hint_practice_{i}"):
             ck, sys, usr = build_hint_prompt(q)
             with st.spinner("AI 產生提示中…"):
                 hint = _gemini_generate_cached(ck, sys, usr)
@@ -642,7 +599,6 @@ def show_practice_mode(paper, use_ai=True, show_image=True):
         if q["ID"] in st.session_state.get("hints", {}):
             st.info(st.session_state["hints"][q["ID"]])
 
-    # 選項
     display = [f"{lab}. {txt}" for lab, txt in q["Choices"]]
     if q["Type"] == "MC":
         picked = st.multiselect("（複選）選擇所有正確選項：", options=display, key=f"practice_pick_{i}")
@@ -651,7 +607,6 @@ def show_practice_mode(paper, use_ai=True, show_image=True):
         choice = st.radio("（單選）選擇一個答案：", options=display, key=f"practice_pick_{i}")
         picked_labels = {choice.split(".", 1)[0]} if choice else set()
 
-    # 提交本題
     if st.button("提交這題", key=f"practice_submit_{i}"):
         gold = set(q["Answer"])
         st.session_state.practice_answers[q["ID"]] = picked_labels
@@ -663,7 +618,6 @@ def show_practice_mode(paper, use_ai=True, show_image=True):
             if str(q.get("Explanation","")).strip():
                 st.caption(f"📖 題庫詳解：{q['Explanation']}")
 
-    # 下一題/完成
     cols = st.columns([1,1])
     with cols[0]:
         if st.button("➡️ 下一題", key=f"practice_next_{i}"):
@@ -678,26 +632,26 @@ def show_practice_mode(paper, use_ai=True, show_image=True):
                 st.session_state.pop(k, None)
             st.rerun()
 
+
 # 啟考（建立試卷 & 狀態）
-with st.sidebar:
-    if 'start_btn' in locals() and start_btn:
-        st.session_state.paper = sample_paper(filtered, int(num_q))
-        st.session_state.start_ts = time.time()
-        st.session_state.answers = {}
-        st.session_state.started = True
-        st.session_state.show_results = False
-        st.session_state.results_df = None
-        st.session_state.score_tuple = None
+if start_btn:
+    st.session_state.paper = sample_paper(filtered, int(num_q))
+    st.session_state.start_ts = time.time()
+    st.session_state.answers = {}
+    st.session_state.started = True
+    st.session_state.show_results = False
+    st.session_state.results_df = None
+    st.session_state.score_tuple = None
+
 
 # -----------------------------
 # 出題頁（依模式分流）
 # -----------------------------
 if st.session_state.started and st.session_state.paper and not st.session_state.show_results:
-    if 'exam_mode' in locals() and exam_mode == '練習模式':
-        # ===== 練習模式 =====
-        show_practice_mode(st.session_state.paper, use_ai=use_ai, show_image=show_image)
+    if exam_mode == '練習模式':
+        show_practice_mode(st.session_state.paper, show_image=show_image)
     else:
-        # ===== 模擬考（整卷） =====
+        # 模擬考：作答時不提供提示
         paper = st.session_state.paper
 
         col_left, col_right = st.columns([1,1])
@@ -716,11 +670,6 @@ if st.session_state.started and st.session_state.paper and not st.session_state.
         if answers_key not in st.session_state:
             st.session_state[answers_key] = {}
 
-        # 新增：每題 AI 提示的狀態儲存
-        hints_key = "hints"
-        if hints_key not in st.session_state:
-            st.session_state[hints_key] = {}
-
         for idx, q in enumerate(paper, start=1):
             st.markdown(f"### Q{idx}. {q['Question']}")
             if show_image and str(q["Image"]).strip():
@@ -729,20 +678,9 @@ if st.session_state.started and st.session_state.paper and not st.session_state.
                 except Exception:
                     st.info("圖片載入失敗，請確認路徑或網址。")
 
-            # === 先顯示提示按鈕與提示（在選項之上）===
-            if use_ai:
-                if st.button(f"💡 看不懂題目嗎?AI來提示你（Q{idx}）", key=f"ai_hint_{idx}"):
-                    ck, sys, usr = build_hint_prompt(q)
-                    with st.spinner("AI 產生提示中…"):
-                        hint = _gemini_generate_cached(ck, sys, usr)
-                    st.session_state[hints_key][q["ID"]] = hint
+            # 模擬考：作答時不顯示提示按鈕/提示
 
-                if q["ID"] in st.session_state[hints_key]:
-                    st.info(st.session_state[hints_key][q["ID"]])
-
-            # === 再顯示選項 ===
             display = [f"{lab}. {txt}" for lab, txt in q["Choices"]]
-
             if q["Type"] == "MC":
                 picked = st.multiselect("（複選）選擇所有正確選項：", options=display, key=f"q_{idx}")
                 picked_labels = {opt.split(".", 1)[0] for opt in picked}
@@ -751,15 +689,12 @@ if st.session_state.started and st.session_state.paper and not st.session_state.
                 picked_labels = {choice.split(".", 1)[0]} if choice else set()
 
             st.session_state[answers_key][q["ID"]] = picked_labels
-
             st.divider()
 
-        # 交卷
         submitted = st.button("📥 交卷並看成績", use_container_width=True)
         timeup = (st.session_state.time_limit > 0 and time.time() - st.session_state.start_ts >= st.session_state.time_limit)
 
         if submitted or timeup:
-            # 判卷
             records = []
             correct_count = 0
             for q in paper:
@@ -807,13 +742,16 @@ elif st.session_state.started and st.session_state.paper and st.session_state.sh
     csv_bytes = result_df.to_csv(index=False).encode("utf-8-sig")
     st.download_button("⬇️ 下載作答明細（CSV）", data=csv_bytes, file_name="exam_results.csv", mime="text/csv")
 
-    # === 題目詳解（依作答結果上色 + 展開詳解） ===
-    st.subheader("🧠 AI 詳解（逐題，依作答結果著色）")
+    # === 題目詳解（依模式決定顯示策略） ===
+    st.subheader("🧠 AI 詳解 / 復盤")
 
     answers_key = "answers"
 
     def _fmt_letters(letters_set: set[str]) -> str:
         return ", ".join(sorted(list(letters_set))) if letters_set else "(未作答)"
+
+    # 錯題 DataFrame（供復盤）
+    df_wrong = result_df[result_df["Result"].str.contains("錯")]
 
     for i, q in enumerate(st.session_state.paper, start=1):
         gold = set(q["Answer"])
@@ -840,12 +778,11 @@ elif st.session_state.started and st.session_state.paper and st.session_state.sh
             unsafe_allow_html=True
         )
 
-        with st.expander("展開詳解"):
+        with st.expander("展開詳解 / 選項"):
             st.markdown(
                 f"<div style='white-space: pre-wrap'><strong>題目：</strong>{q['Question']}</div>",
                 unsafe_allow_html=True
             )
-
             mapping = {lab: txt for lab, txt in q["Choices"]}
             st.markdown("**選項：**")
             for lab, txt in q["Choices"]:
@@ -855,29 +792,48 @@ elif st.session_state.started and st.session_state.paper and st.session_state.sh
                 if lab in gold:
                     tag += " ✅"
                 st.markdown(f"- **{lab}**. {txt} {tag}")
-
             st.markdown(f"**正解：** {_fmt_letters(gold)}")
-
             if str(q.get("Explanation", "")).strip():
                 st.info(f"📖 題庫詳解：{q['Explanation']}")
 
-            if use_ai:
-                if st.button(f"🤖 產生 AI 詳解（Q{i}）", key=f"ai_explain_colored_{i}"):
+            # 顯示 AI 詳解按鈕的規則：
+            # - 模擬考模式：所有題目都提供按鈕（自選是否查看）
+            # - 練習模式：僅錯題提供按鈕（符合你的需求：練習模式重點在錯題分析）
+            show_ai_button = (exam_mode == '模擬考模式') or (exam_mode == '練習模式' and not is_correct)
+            if _gemini_ready() and show_ai_button:
+                if st.button(f"🤖 顯示 AI 詳解（Q{i}）", key=f"ai_explain_{exam_mode}_{i}"):
                     ck, sys, usr = build_explain_prompt(q)
                     with st.spinner("AI 產生詳解中…"):
                         expl = _gemini_generate_cached(ck, sys, usr)
                     st.success(expl)
 
-    # === 📊 AI 考後總結（僅結果頁顯示） ===
-    if use_ai:
-        st.subheader("📊 AI 考後總結")
-        if st.button("產出弱項分析與建議", key="ai_summary_btn"):
+    # === 錯題 AI 復盤/分析 ===
+    if _gemini_ready() and not df_wrong.empty:
+        if exam_mode == '練習模式':
+            st.subheader("📊 錯題 AI 分析（練習模式）")
+            if st.button("產生錯題分析/復盤", key="ai_wrong_review_practice"):
+                ck, sys, usr = build_weak_wrong_prompt(df_wrong)
+                with st.spinner("AI 分析中…"):
+                    summ = _gemini_generate_cached(ck, sys, usr)
+                st.write(summ)
+        else:
+            st.subheader("📊 錯題 AI 復盤（模擬考模式）")
+            if st.button("產生錯題復盤與建議", key="ai_wrong_review_mock"):
+                ck, sys, usr = build_weak_wrong_prompt(df_wrong)
+                with st.spinner("AI 分析中…"):
+                    summ = _gemini_generate_cached(ck, sys, usr)
+                st.write(summ)
+
+    # （保留）整體 AI 總結：若你想同時保留，可按下方按鈕（不限模式）
+    if _gemini_ready():
+        st.subheader("📌 整體 AI 總結（可選）")
+        if st.button("產出弱項分析與建議（整體）", key="ai_summary_btn"):
             ck, sys, usr = build_summary_prompt(result_df)
             with st.spinner("AI 分析中…"):
                 summ = _gemini_generate_cached(ck, sys, usr)
             st.write(summ)
 
-    # 再考一次（重置旗標）
+    # 再考一次
     if st.button("🔁 再考一次", type="secondary"):
         st.session_state.paper = None
         st.session_state.start_ts = None
