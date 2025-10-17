@@ -7,9 +7,6 @@ import streamlit as st
 APP_TITLE = "錠嵂保經 AI 模擬考系統"
 APP_ICON = "📘"
 
-# ------------------------
-# 初始化頁面設定
-# ------------------------
 def init_page_config():
     st.set_page_config(page_title=APP_TITLE, layout="wide", page_icon=APP_ICON)
 
@@ -25,7 +22,7 @@ OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen2.5:3b-instruct-q4_0")
 # ------------------------
 # 題庫設定
 # ------------------------
-QUESTION_PATH = "data/question_bank.xlsx"  # 題庫路徑
+QUESTION_PATH = "data/question_bank.xlsx"
 SHEET_NAMES = ["人身", "外幣", "投資型"]
 
 # ------------------------
@@ -36,3 +33,6 @@ AI_HINT_BUTTON = "🤖 題目解釋"
 OPENBOOK_BUTTON = "📖 開啟章節解釋"
 FEEDBACK_GOOD = "👍"
 FEEDBACK_BAD = "👎"
+
+# ✅ 改名為公開變數
+DOMAIN_OPTIONS = ["人身", "外幣", "投資型"]
