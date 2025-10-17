@@ -64,3 +64,16 @@ def render_practice_question(qid, question_text, options, correct_answer):
         st.session_state["checked"] = False
         st.session_state["current_q"] = st.session_state.get("current_q", 0) + 1
         st.experimental_rerun()
+def render_question_card(qid, question_text, options, correct_answer=None, mode="exam"):
+    """模擬考模式：單純對錯顯示與評分"""
+    st.markdown(f"<div class='question-card'><b>題目：</b> {question_text}</div>", unsafe_allow_html=True)
+    selected = st.radio("請選擇答案：", options, index=None, key=f"exam_{qid}")
+
+    if st.button("提交答案", key=f"submit_{qid}"):
+        if not selected:
+            st.warning("請先選擇答案再提交！")
+        else:
+            if selected == correct_answer:
+                st.success("✅ 答對了！")
+            else:
+                st.error(f"❌ 答錯了，正確答案為：{correct_answer}")
