@@ -3,12 +3,11 @@ import pandas as pd
 from ui.layout import render_header
 from ui.components import render_practice_question
 from services.db_client import get_questions_by_domain
-from config.settings import _DOMAIN_OPTIONS
+from config.settings import DOMAIN_OPTIONS
 
 def main():
     render_header("🧠 練習模式")
 
-    # 初始化狀態
     if "current_q" not in st.session_state:
         st.session_state["current_q"] = 0
     if "score" not in st.session_state:
@@ -16,14 +15,13 @@ def main():
     if "results" not in st.session_state:
         st.session_state["results"] = []
 
-    domain = st.selectbox("請選擇題庫領域：", _DOMAIN_OPTIONS)
+    domain = st.selectbox("請選擇題庫領域：", DOMAIN_OPTIONS)
     df = get_questions_by_domain(domain)
 
     if df.empty:
         st.warning("⚠️ 尚未載入題庫或該分類無題目。")
         st.stop()
 
-    # 顯示當前題目
     i = st.session_state["current_q"]
     if i < len(df):
         row = df.iloc[i]
