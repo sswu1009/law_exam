@@ -2,9 +2,9 @@ import streamlit as st
 import re
 import pandas as pd
 
-# --------------------------------------
-# 題目文字清理與解析（備用方案）
-# --------------------------------------
+# -----------------------------
+# 題目字串解析工具
+# -----------------------------
 def _normalize_text(s: str) -> str:
     if not isinstance(s, str):
         return ""
@@ -18,39 +18,26 @@ def _normalize_text(s: str) -> str:
 
 
 def parse_question_and_options(raw_text: str):
-    """當題目內含 A./A、/(A) 時自動切割"""
+    """從題目中切出題幹與選項（支援 A. / A、 / (A)）"""
     s = _normalize_text(raw_text)
-    # 嘗試從題目中切出 A~D
-    a_split = re.split(r"\sA[\.、]\s*", s, maxsplit=1)
-    if len(a_split) != 2:
-        return raw_text.strip(), []
 
-    q_text, rest = a_split[0].strip(), a_split[1].strip()
-    b_split = re.split(r"\sB[\.、]\s*", rest, maxsplit=1)
-    if len(b_split) != 2:
-        return raw_text.strip(), []
-    A_text, rest = b_split[0].strip(), b_split[1].strip()
-
-    c_split = re.split(r"\sC[\.、]\s*", rest, maxsplit=1)
-    if len(c_split) != 2:
-        return raw_text.strip(), []
-    B_text, rest = c_split[0].strip(), rest
-
-    d_split = re.split(r"\sD[\.、]\s*", rest, maxsplit=1)
-    if len(d_split) != 2:
-        return raw_text.strip(), []
-    C_text, D_text = d_split[0].strip(), d_split[1].strip()
-
-    return q_text, [A_text, B_text, C_text, D_text]
+    # 嘗試切出 A~D
+    pattern = r"(.*?)A[\.、]\s*(.*?)B[\.、]\s*(.*?)C[\.、]\s*(.*?)D[\.、]\s*(.*)"
+    m = re.match(pattern, s)
+    if m:
+        q = m.group(1).strip()
+        options = [m.group(2).strip(), m.group(3).strip(), m.group(4).strip(), m.group(5).strip()]
+        return q, options
+    return raw_text.strip(), []
 
 
-# --------------------------------------
+# -----------------------------
 # 練習模式題目顯示
-# --------------------------------------
+# -----------------------------
 def render_practice_question(qid: str, question: str, options: list, correct_answer: str, row=None):
-    """顯示練習題，支援欄位或內嵌選項格式"""
+    """顯示練習題（題目與選項分開）"""
 
-    # 🔹 若 options 為空，嘗試從 row 取得 A/B/C/D 欄位
+    # 若沒傳入 options，嘗試從 Excel 欄位取 A~D
     if (not options or all(o == "" for o in options)) and isinstance(row, pd.Series):
         alt_opts = []
         for col in ["A", "B", "C", "D", "選項A", "選項B", "選項C", "選項D"]:
@@ -58,19 +45,29 @@ def render_practice_question(qid: str, question: str, options: list, correct_ans
                 alt_opts.append(str(row[col]).strip())
         options = alt_opts
 
-    # 🔹 若仍無法取得，嘗試從題目內解析
+    # 若還是沒有就解析題目文字
     if not options:
         parsed_q, parsed_opts = parse_question_and_options(question)
         if parsed_opts:
             question, options = parsed_q, parsed_opts
 
+    # -----------------------------
+    # 顯示題目 + 選項
+    # -----------------------------
     st.markdown("### 📝 **題目：**")
     st.write(question)
 
-    if not options:
-        st.warning("⚠️ 此題缺少選項欄位，且無法從題目內解析 A/B/C/D，請檢查題庫格式。")
+    if options:
+        st.markdown("#### **選項：**")
+        for i, opt in enumerate(options):
+            st.markdown(f"- **{chr(65+i)}.** {opt}")
+    else:
+        st.warning("⚠️ 此題缺少選項資料。")
         return
 
+    # -----------------------------
+    # 作答區
+    # -----------------------------
     sel_key = f"radio_{qid}"
     ans_flag = f"{qid}_answered"
     sel_store = f"{qid}_selected"
@@ -80,15 +77,17 @@ def render_practice_question(qid: str, question: str, options: list, correct_ans
     if sel_store not in st.session_state:
         st.session_state[sel_store] = None
 
+    st.write("請選擇答案：")
     picked = st.radio(
-        "請選擇答案：",
-        [f"{chr(65+i)}. {opt}" for i, opt in enumerate(options)],
+        "",
+        [f"{chr(65+i)}" for i in range(len(options))],
         index=None,
         key=sel_key,
+        horizontal=False,
     )
 
     if picked:
-        st.session_state[sel_store] = picked[0]
+        st.session_state[sel_store] = picked
 
     col1, col2 = st.columns(2)
     with col1:
@@ -112,19 +111,22 @@ def render_practice_question(qid: str, question: str, options: list, correct_ans
             st.session_state[ans_flag] = False
             st.rerun()
 
+    # -----------------------------
+    # 對答案回饋
+    # -----------------------------
     if st.session_state[ans_flag]:
         chosen = st.session_state.get(sel_store)
         if chosen == correct_answer:
-            st.success(f"✅ 答對了！正確答案：{correct_answer}")
+            st.success(f"✅ 答對了！正確答案是 {correct_answer}")
         else:
-            st.error(f"❌ 答錯了！正確答案：{correct_answer}")
+            st.error(f"❌ 答錯了！正確答案是 {correct_answer}")
 
 
-# --------------------------------------
+# -----------------------------
 # 模擬考模式題目顯示
-# --------------------------------------
+# -----------------------------
 def render_question_card(qid: str, question: str, options: list, correct_answer=None, row=None):
-    """顯示模擬考題，支援欄位或內嵌格式"""
+    """模擬考模式，題目與選項分開"""
     if (not options or all(o == "" for o in options)) and isinstance(row, pd.Series):
         alt_opts = []
         for col in ["A", "B", "C", "D", "選項A", "選項B", "選項C", "選項D"]:
@@ -138,14 +140,17 @@ def render_question_card(qid: str, question: str, options: list, correct_answer=
             question, options = parsed_q, parsed_opts
 
     st.markdown(f"**題目：** {question}")
-    if not options:
+    if options:
+        for i, opt in enumerate(options):
+            st.markdown(f"- **{chr(65+i)}.** {opt}")
+    else:
         st.warning("⚠️ 無法顯示選項。")
         return None
 
     picked = st.radio(
         "請選擇答案：",
-        [f"{chr(65+i)}. {opt}" for i, opt in enumerate(options)],
+        [f"{chr(65+i)}" for i in range(len(options))],
         index=None,
         key=f"exam_{qid}",
     )
-    return picked[0] if picked else None
+    return picked if picked else None
