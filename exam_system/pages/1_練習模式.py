@@ -40,7 +40,7 @@ def main():
             st.session_state["current_q"] = 0
             st.session_state["score"] = 0
             st.session_state["results"] = []
-            st.experimental_rerun()
+            st.rerun()  # ✅ 新版 Streamlit 正確寫法
         st.stop()  # 尚未開始則不顯示題目
 
     # --- Step 3️⃣: 出題 ---
@@ -64,7 +64,7 @@ def main():
 
         if st.button("🔄 重新開始練習"):
             st.session_state["practice_started"] = False
-            st.experimental_rerun()
+            st.rerun()  # ✅ 一併更新這裡
 
 
 if __name__ == "__main__":
