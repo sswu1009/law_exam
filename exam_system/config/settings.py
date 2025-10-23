@@ -22,7 +22,9 @@ OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen2.5:3b-instruct-q4_0")
 # ------------------------
 # 題庫設定
 # ------------------------
-QUESTION_PATH = "data/question_bank.xlsx"
+#QUESTION_PATH = "data/question_bank.xlsx"
+# 改成指向 bank 資料夾
+QUESTION_PATH = "bank/"
 SHEET_NAMES = ["人身", "外幣", "投資型"]
 
 # ------------------------
