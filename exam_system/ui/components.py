@@ -1,12 +1,11 @@
 import streamlit as st
 import re
 import pandas as pd
-import google.generativeai as genai  # 若你改用 Ollama，可換成自己的模組
+import google.generativeai as genai
 
 
-# ========== AI 題目解釋邏輯 ==========
+# ========== AI 題目解釋 ==========
 def ai_explain_question(question: str):
-    """AI 題目解釋（使用 Gemini，可依需求改成 Ollama / OpenAI）"""
     try:
         genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
         model = genai.GenerativeModel("gemini-1.5-flash")
@@ -23,7 +22,7 @@ def ai_explain_question(question: str):
         return f"⚠️ AI 解釋時出錯：{e}"
 
 
-# ========== 題目文字解析工具 ==========
+# ========== 解析文字 ==========
 def _normalize_text(s: str) -> str:
     if not isinstance(s, str): return ""
     trans = str.maketrans({
@@ -36,7 +35,6 @@ def _normalize_text(s: str) -> str:
 
 
 def parse_question_and_options(raw_text: str):
-    """從題目中解析題幹與 A~D 選項"""
     s = _normalize_text(raw_text)
     token = r"(?:\(|（)?([A-D])(?:\)|）)?[\.、]"
     marks = list(re.finditer(token, s))
@@ -49,29 +47,41 @@ def parse_question_and_options(raw_text: str):
     return q, [A,B,C,D]
 
 
-# ========== 練習模式 題目顯示 ==========
+# ========== 智慧選項擷取 ==========
+def extract_options(row: pd.Series):
+    """可自動辨識欄名：A~D、選項A~D、選項一~選項四、1~4"""
+    possible_sets = [
+        ["A", "B", "C", "D"],
+        ["選項A", "選項B", "選項C", "選項D"],
+        ["選項一", "選項二", "選項三", "選項四"],
+        ["1", "2", "3", "4"],
+        ["option1", "option2", "option3", "option4"]
+    ]
+    for cols in possible_sets:
+        opts = [str(row.get(c, "")).strip() for c in cols if str(row.get(c, "")).strip()]
+        if len(opts) >= 2:  # 至少要有兩個選項才視為有效
+            return opts
+    return []
+
+
+# ========== 題目渲染 ==========
 def render_practice_question(qid: str, question: str, options: list, correct_answer: str, row=None):
-    """顯示練習題（題目＋AI提示＋選項）"""
+    """顯示題目 + AI提示 + 選項 + 對答案"""
 
-    # --- 若沒 options，從 Excel 裡找 A~D ---
+    # --- 智慧抓選項 ---
     if (not options or all(o == "" for o in options)) and isinstance(row, pd.Series):
-        opts = []
-        for col in ["A","B","C","D","選項A","選項B","選項C","選項D"]:
-            val = str(row.get(col, "")).strip()
-            if val: opts.append(val)
-        options = opts
+        options = extract_options(row)
 
-    # --- 若仍沒有，從題目內拆 A~D ---
     if not options:
         q2, opts2 = parse_question_and_options(question)
         if opts2:
             question, options = q2, opts2
 
-    # --- 題目文字 ---
+    # --- 題目 ---
     st.markdown("### 🧠 **題目：**")
     st.write(question)
 
-    # --- AI 解釋區 ---
+    # --- AI 解釋 ---
     explain_key = f"explain_{qid}"
     if st.button("🧠 看不懂題目嗎？", key=explain_key):
         with st.spinner("AI 助教正在說明中..."):
