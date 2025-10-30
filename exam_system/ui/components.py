@@ -31,16 +31,46 @@ def ai_explain_question(question: str):
 
 
 # ========== (2) 文字前處理 ==========
+import re
+
 def _normalize_text(s: str) -> str:
+    """統一中英文字型、移除控制符號與多餘空白"""
     if not isinstance(s, str):
         return ""
-    trans = str.maketrans({
-        "Ａ": "A", "Ｂ": "B", "Ｃ": "C", "Ｄ": "D",
-        "（": "(", "）": ")", "．": ".", "、": ".", "：": ":", "；": ";"
-    })
-    s = s.translate(trans)
+    # 全形轉半形
+    def to_halfwidth(txt):
+        result = ""
+        for char in txt:
+            code = ord(char)
+            if code == 0x3000:
+                code = 32
+            elif 0xFF01 <= code <= 0xFF5E:
+                code -= 0xFEE0
+            result += chr(code)
+        return result
+
+    s = to_halfwidth(s)
+    # 移除不可見控制符號
+    s = re.sub(r"[\u200B-\u200D\uFEFF]", "", s)
+    # 統一常見符號
+    s = s.replace("（", "(").replace("）", ")").replace("．", ".").replace("、", ".")
     s = re.sub(r"\s+", " ", s).strip()
     return s
+
+
+def escape_markdown(s: str) -> str:
+    """完全清除或跳脫特殊符號，防止選項殘留 *、全形＊ 或其他干擾符號"""
+    if not isinstance(s, str):
+        return ""
+    s = _normalize_text(s)
+    # 移除開頭或中間的星號符號（包含全形＊）
+    s = re.sub(r"^[\*\＊]+", "", s)
+    s = s.replace("＊", "")
+    s = s.replace("*", "")
+    # 移除多餘冒號或點
+    s = s.strip(" .:")
+    return s.strip()
+
 
 
 def parse_question_and_options(raw_text: str):
@@ -89,22 +119,6 @@ def extract_options(row: pd.Series):
     return []
 
 
-# ========== (4) Markdown 會吃掉 * 或 _ → 先跳脫 ==========
-def escape_markdown(s: str) -> str:
-    """移除或跳脫 Markdown 符號，確保 radio 顯示正常"""
-    if not isinstance(s, str):
-        return ""
-    # 若開頭就是 * ，則移除，不做跳脫
-    s = re.sub(r"^\*+", "", s.strip())
-    # 中間若有 Markdown 特殊符號則跳脫
-    s = s.replace("*", "\\*")
-    s = s.replace("_", "\\_")
-    s = s.replace("`", "\\`")
-    s = s.replace("#", "\\#")
-    s = s.replace("-", "\\-")
-    s = s.replace(">", "\\>")
-    s = s.replace("|", "\\|")
-    return s.strip()
 
 
 
