@@ -1,8 +1,10 @@
 import streamlit as st
 import pandas as pd
 import sys, os
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from services.ai_client import get_ai_hint
+
+
 st.set_page_config(page_title="練習模式", layout="wide")
 
 st.title("🧠 練習模式")
