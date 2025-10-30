@@ -1,73 +1,88 @@
+# services/ai_client.py
 import os
-import requests
-import google.generativeai as genai
+from typing import Optional
+
 import streamlit as st
-from config.settings import GEMINI_API_KEY, GEMINI_MODEL, OLLAMA_ENDPOINT, OLLAMA_MODEL
+
+# 若你要用 google.generativeai
+try:
+    import google.generativeai as genai
+    _HAS_GEMINI = True
+except ImportError:
+    _HAS_GEMINI = False
+
+import requests  # 給 Ollama 用
 
 
-# ======================
-# AI 客戶端初始化
-# ======================
-def use_ollama():
-    """確認是否啟用 Ollama"""
+# === 環境設定 ===
+DEFAULT_MODEL = "gemini"  # "gemini" or "ollama"
+GEMINI_MODEL_NAME = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+OLLAMA_MODEL_NAME = os.getenv("OLLAMA_MODEL", "qwen2.5")
+
+
+def _gemini_ready() -> bool:
+    return _HAS_GEMINI and ("GEMINI_API_KEY" in st.secrets or os.getenv("GEMINI_API_KEY"))
+
+
+def _gemini_generate(system_msg: str, user_msg: str) -> str:
+    api_key = st.secrets.get("GEMINI_API_KEY", os.getenv("GEMINI_API_KEY", ""))
+    genai.configure(api_key=api_key)
+    model = genai.GenerativeModel(GEMINI_MODEL_NAME)
+    prompt = f"[系統指示]\n{system_msg}\n\n[使用者題目]\n{user_msg}".strip()
+    resp = model.generate_content(prompt)
+    text = (resp.text or "").strip()
+    return text
+
+
+def _ollama_ready() -> bool:
+    # 預設你本機有跑 ollama http://localhost:11434
+    return True
+
+
+def _ollama_generate(system_msg: str, user_msg: str) -> str:
+    url = "http://localhost:11434/api/generate"
+    prompt = f"{system_msg}\n\n{user_msg}"
+    payload = {
+        "model": OLLAMA_MODEL_NAME,
+        "prompt": prompt,
+        "stream": False,
+    }
     try:
-        resp = requests.get(f"{OLLAMA_ENDPOINT}/api/tags", timeout=2)
-        return resp.status_code == 200
-    except Exception:
-        return False
-
-
-# ----------------------
-# Gemini 設定
-# ----------------------
-def _gemini_ready():
-    return bool(GEMINI_API_KEY)
-
-
-def _gemini_client():
-    genai.configure(api_key=GEMINI_API_KEY)
-    return genai.GenerativeModel(GEMINI_MODEL)
-
-
-# ----------------------
-# Ollama 回答
-# ----------------------
-def query_ollama(prompt: str) -> str:
-    payload = {"model": OLLAMA_MODEL, "prompt": prompt}
-    try:
-        r = requests.post(f"{OLLAMA_ENDPOINT}/api/generate", json=payload, stream=False, timeout=60)
-        if r.status_code == 200:
-            result = r.json()
-            return result.get("response", "").strip()
-        else:
-            return f"Ollama 伺服器錯誤: {r.text}"
+        r = requests.post(url, json=payload, timeout=30)
+        r.raise_for_status()
+        data = r.json()
+        return data.get("response", "").strip()
     except Exception as e:
-        return f"Ollama 連線失敗: {e}"
+        return f"無法取得 Ollama 回應：{e}"
 
 
-# ----------------------
-# Gemini 回答
-# ----------------------
-def query_gemini(prompt: str) -> str:
-    try:
-        model = _gemini_client()
-        resp = model.generate_content(prompt)
-        return (resp.text or "").strip()
-    except Exception as e:
-        return f"Gemini 發生錯誤: {e}"
+def get_ai_hint(question_text: str, choices: Optional[dict] = None, correct: Optional[str] = None) -> str:
+    """
+    統一對外的 AI 解析介面。
+    傳入題目文字、選項、正解（可選），回傳 AI 解析文字。
+    最後一行會附上 [Powered by Gemini] 做除錯。
+    """
+    system_msg = (
+        "你是一位台灣保險相關證照考試的解析助教，請用精簡條列說明為何正確答案正確，並說明其他選項錯在哪裡。"
+        "必要時引用法規條文名稱，但不要捏造不存在的法條。"
+    )
 
+    user_parts = [f"題目：{question_text}"]
+    if choices:
+        for key, val in choices.items():
+            user_parts.append(f"{key}. {val}")
+    if correct:
+        user_parts.append(f"正確答案：{correct}")
 
-# ----------------------
-# 統一呼叫介面
-# ----------------------
-def ai_answer(system_msg: str, user_msg: str) -> str:
-    """根據環境自動選擇 Ollama 或 Gemini"""
-    prompt = f"[系統指示]\n{system_msg}\n\n[使用者問題]\n{user_msg}".strip()
+    user_msg = "\n".join(user_parts)
 
-    if use_ollama():
-        result = query_ollama(prompt)
-        if "Ollama" not in result:
-            return result
+    # 優先 Gemini
     if _gemini_ready():
-        return query_gemini(prompt)
-    return "⚠️ 目前無可用的 AI 模型，請檢查 Ollama 或 Gemini 設定。"
+        ans = _gemini_generate(system_msg, user_msg)
+        # 標註來源
+        return ans + "\n\n[Powered by Gemini]"
+    else:
+        # 改走 Ollama
+        ans = _ollama_generate(system_msg, user_msg)
+        # 若你也想標註，可改成 Ollama
+        return ans + "\n\n[Powered by Ollama]"
