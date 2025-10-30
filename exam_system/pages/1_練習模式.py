@@ -11,7 +11,7 @@ SERVICE_PATH = os.path.abspath(os.path.join(CURRENT_DIR, "..", "services", "ai_c
 spec = importlib.util.spec_from_file_location("ai_client", SERVICE_PATH)
 ai_client = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ai_client)
-get_ai_hint = ai_client.get_ai_hint
+get_ai_hint = ai_client.generate_ai_hint  # <-- ✅ 改成正確名稱
 
 # === Streamlit 頁面設定 ===
 st.set_page_config(page_title="練習模式", layout="wide")
@@ -67,8 +67,11 @@ if "questions" in st.session_state and not st.session_state.get("finished", Fals
 
     with col2:
         if st.button("看不懂題目嗎？", key=f"hint_{q_index}"):
-            hint = get_ai_hint(q_data["題目"], domain)
-            st.info(hint or "AI 提示暫無法提供")
+            try:
+                hint = get_ai_hint(q_data["題目"], domain)
+                st.info(hint or "AI 提示暫無法提供")
+            except Exception as e:
+                st.warning(f"AI 提示功能異常：{e}")
 
     if st.button("➡️ 下一題", key=f"next_{q_index}"):
         if q_index + 1 < len(q_list):
