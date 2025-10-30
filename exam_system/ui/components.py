@@ -172,8 +172,19 @@ def render_practice_question(qid: str, question: str, options: list, correct_ans
             if row is not None and f"選項{correct_answer}" in row:
                 correct_text = row[f"選項{correct_answer}"]
             elif len(options) >= 4:
-                correct_text = options[ord(correct_answer) - 65]
-            st.error(f"❌ 答錯了！\n👉 正確答案：{correct_answer}. {correct_text}")
+                try:
+                    # 若答案是 A/B/C/D
+                    if correct_answer.upper() in ["A", "B", "C", "D"]:
+                        idx = ord(correct_answer.upper()) - 65
+                    # 若答案是數字 1~4
+                    elif correct_answer.strip().isdigit():
+                        idx = int(correct_answer.strip()) - 1
+                    else:
+                        idx = 0
+                    correct_text = options[idx] if idx < len(options) else ""
+            except Exception:
+                    correct_text = ""
+
 
     # 下一題
     if next_q:
