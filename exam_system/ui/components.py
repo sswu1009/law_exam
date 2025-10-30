@@ -91,13 +91,21 @@ def extract_options(row: pd.Series):
 
 # ========== (4) Markdown 會吃掉 * 或 _ → 先跳脫 ==========
 def escape_markdown(s: str) -> str:
+    """移除或跳脫 Markdown 符號，確保 radio 顯示正常"""
     if not isinstance(s, str):
         return ""
-    # 只跳脫一些最常見的
+    # 若開頭就是 * ，則移除，不做跳脫
+    s = re.sub(r"^\*+", "", s.strip())
+    # 中間若有 Markdown 特殊符號則跳脫
     s = s.replace("*", "\\*")
     s = s.replace("_", "\\_")
     s = s.replace("`", "\\`")
-    return s
+    s = s.replace("#", "\\#")
+    s = s.replace("-", "\\-")
+    s = s.replace(">", "\\>")
+    s = s.replace("|", "\\|")
+    return s.strip()
+
 
 
 # ========== (5) 練習模式題目渲染 ==========
