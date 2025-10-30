@@ -14,7 +14,9 @@ def ai_explain_question(question: str):
         genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
         model = genai.GenerativeModel("gemini-1.5-flash")
         prompt = f"""
-你是一位保險相關考照的輔導老師，請清楚解釋題意、關鍵字與考點，不要直接給答案。
+你是一位保險相關考照的輔導老師，
+請用簡單方式說明這題在考什麼概念與關鍵字，不要直接提供答案。
+
 題目：
 {question}
 """
@@ -24,7 +26,7 @@ def ai_explain_question(question: str):
         return f"（AI 解釋暫時無法使用：{e}）"
 
 
-# ========== (2) 文字標準化 ==========
+# ========== (2) 文字處理 ==========
 def _normalize_text(s: str) -> str:
     if not isinstance(s, str):
         return ""
@@ -40,23 +42,21 @@ def _normalize_text(s: str) -> str:
         return result
     s = to_halfwidth(s)
     s = re.sub(r"[\u200B-\u200D\uFEFF]", "", s)
-    s = s.replace("（", "(").replace("）", ")").replace("．", ".").replace("、", ".")
-    s = re.sub(r"\s+", " ", s).strip()
-    return s
-
-
-def escape_markdown(s: str) -> str:
-    if not isinstance(s, str):
-        return ""
-    s = _normalize_text(s)
-    s = re.sub(r"^[\*\＊]+", "", s)
-    s = s.replace("＊", "").replace("*", "").strip(" .:")
+    s = re.sub(r"\s+", " ", s)
     return s.strip()
 
 
-# ========== (3) 題目與選項自動解析 ==========
+def clean_answer(ans: str) -> str:
+    """清理答案文字，只留下 A/B/C/D 或數字"""
+    if not isinstance(ans, str):
+        return ""
+    s = _normalize_text(ans).upper()
+    s = re.sub(r"[^A-D0-9]", "", s)
+    return s.strip()
+
+
+# ========== (3) 題目與選項解析 ==========
 def parse_question_and_options(raw_text: str):
-    """從題目文字中自動拆出 A. B. C. D."""
     s = _normalize_text(raw_text)
     token = r"(?:\(|（)?([A-D])(?:\)|）)?[\.、]"
     marks = list(re.finditer(token, s))
@@ -64,127 +64,99 @@ def parse_question_and_options(raw_text: str):
         return raw_text.strip(), []
 
     q = s[:marks[0].start()].strip()
-
-    def seg(i, j):
-        return s[marks[i].end(): marks[j].start()].strip(" ；: ")
     opts = []
     for i in range(len(marks)):
         start = marks[i].end()
         end = marks[i + 1].start() if i + 1 < len(marks) else len(s)
-        opt = s[start:end].strip(" ;．。 ")
+        opt = s[start:end].strip(" ．。 ")
         opts.append(opt)
     return q, opts[:4]
 
 
-# ========== (4) 從資料列擷取選項 ==========
+# ========== (4) 從 DataFrame 擷取選項 ==========
 def extract_options(row: pd.Series):
-    possible_sets = [
+    sets = [
         ["A", "B", "C", "D"],
         ["選項A", "選項B", "選項C", "選項D"],
         ["選項一", "選項二", "選項三", "選項四"],
         ["1", "2", "3", "4"],
     ]
-    for cols in possible_sets:
+    for cols in sets:
         opts = [str(row.get(c, "")).strip() for c in cols if pd.notna(row.get(c, ""))]
         if len(opts) >= 2:
             return opts
     return []
 
 
-# ========== (5) 顯示練習題 ==========
+# ========== (5) 主體渲染 ==========
 def render_practice_question(qid: str, question: str, options: list, correct_answer: str, row=None):
-    """題目 + 選項 + 對答案 + 下一題 + AI 解釋 + 詳解"""
-    # 自動補選項
+    # --- 自動補選項 ---
     if (not options or all(o == "" for o in options)) and isinstance(row, pd.Series):
         options = extract_options(row)
     if not options:
-        parsed_q, parsed_opts = parse_question_and_options(question)
-        if parsed_opts:
-            question, options = parsed_q, parsed_opts
+        q2, parsed = parse_question_and_options(question)
+        if parsed:
+            question, options = q2, parsed
 
-    # 顯示題目
+    # --- 顯示題目 ---
     st.markdown("### 🧠 **題目：**")
     st.write(question)
 
-    # AI 提示按鈕
+    # --- AI 解釋 ---
     if st.button("🧠 看不懂題目嗎？", key=f"exp_{qid}"):
         with st.spinner("AI 助教說明中..."):
             st.markdown("### 💬 AI 解釋：")
             st.write(ai_explain_question(question))
 
-    # 沒選項就警告
+    # --- 顯示選項 ---
     if not options:
         st.warning("⚠️ 無法取得選項，請檢查題庫格式。")
         return
+    display_options = [f"{chr(65+i)}. {opt}" for i, opt in enumerate(options)]
 
-    # 顯示選項
-    display_options = [f"{chr(65+i)}. {escape_markdown(opt)}" for i, opt in enumerate(options)]
     sel_key = f"radio_{qid}"
-    sel_store = f"{qid}_selected"
-    if sel_store not in st.session_state:
-        st.session_state[sel_store] = None
-
     picked = st.radio("", display_options, index=None, key=sel_key)
-    if picked:
-        st.session_state[sel_store] = picked[0]
+    selected = clean_answer(picked[0]) if picked else ""
 
+    # --- 按鈕區 ---
     col1, col2 = st.columns(2)
     with col1:
         check = st.button("✅ 對答案", key=f"check_{qid}")
     with col2:
         next_q = st.button("➡️ 下一題", key=f"next_{qid}")
 
-    # 對答案邏輯
+    # --- 清理答案 ---
+    correct_answer_clean = clean_answer(correct_answer)
+
+    # --- 檢查答案 ---
     if check:
-        selected = st.session_state.get(sel_store)
         if not selected:
-            st.warning("請先選擇一個答案！")
-        elif selected == correct_answer:
+            st.warning("請先選擇答案！")
+        elif selected == correct_answer_clean:
             st.success("🎯 答對了！")
         else:
-            # ========== 正確答案顯示 ==========
+            # --- 找正確答案文字 ---
             correct_text = ""
+            try:
+                idx = ord(correct_answer_clean) - 65 if correct_answer_clean in "ABCD" else int(correct_answer_clean) - 1
+                if 0 <= idx < len(options):
+                    correct_text = options[idx]
+            except Exception:
+                pass
 
-            # (1) 從 row 中找
-            if row is not None:
-                col_name = f"選項{correct_answer}"
-                if col_name in row and pd.notna(row[col_name]):
-                    correct_text = str(row[col_name]).strip()
-                else:
-                    mapping = {"A": "選項一", "B": "選項二", "C": "選項三", "D": "選項四"}
-                    alt_col = mapping.get(correct_answer.upper())
-                    if alt_col and alt_col in row and pd.notna(row[alt_col]):
-                        correct_text = str(row[alt_col]).strip()
-
-            # (2) 從畫面 options 拿
-            if not correct_text and options:
-                try:
-                    ans = correct_answer.strip().upper()
-                    if ans in ["A", "B", "C", "D"]:
-                        idx = ord(ans) - 65
-                    elif ans.isdigit():
-                        idx = int(ans) - 1
-                    else:
-                        idx = 0
-                    if 0 <= idx < len(options):
-                        correct_text = options[idx]
-                except Exception:
-                    correct_text = ""
-
-            # (3) 顯示錯題訊息
             if correct_text:
-                st.error(f"❌ 答錯了！👉 正確答案：{correct_answer}. {correct_text}")
+                st.error(f"❌ 答錯了！👉 正確答案：{correct_answer_clean}. {correct_text}")
             else:
-                st.error(f"❌ 答錯了！👉 正確答案：{correct_answer}")
+                st.error(f"❌ 答錯了！👉 正確答案：{correct_answer_clean}")
 
-            # (4) 顯示詳解
+            # --- 詳解顯示 ---
             if row is not None:
-                for explain_col in ["詳解", "解析", "說明"]:
-                    if explain_col in row and pd.notna(row[explain_col]):
-                        st.info(f"📘 題目解析：{row[explain_col]}")
+                for c in ["詳解", "解析", "說明"]:
+                    if c in row and pd.notna(row[c]):
+                        st.info(f"📘 題目解析：{row[c]}")
                         break
 
-    # 下一題
+    # --- 下一題 ---
     if next_q:
         st.session_state["current_q"] = st.session_state.get("current_q", 0) + 1
         st.rerun()
