@@ -8,9 +8,8 @@ def ai_explain_question(question: str):
     若有 GEMINI_API_KEY 才呼叫，沒有就回傳友善提示。
     你之後要換成 Ollama / OpenAI 只要改這裡就好。
     """
-    # 沒有金鑰就直接回傳提示，避免整頁報錯
     if "GEMINI_API_KEY" not in st.secrets:
-        return "（目前未設定 AI 金鑰，無法產生題目解釋，請到 .streamlit/secrets.toml 加上 GEMINI_API_KEY）"
+        return "⚠️ 目前未設定 AI 金鑰，無法產生題目解釋。\n請在 .streamlit/secrets.toml 加上 GEMINI_API_KEY。"
 
     try:
         import google.generativeai as genai
@@ -26,13 +25,10 @@ def ai_explain_question(question: str):
         resp = model.generate_content(prompt)
         return (resp.text or "").strip()
     except Exception as e:
-        # 這裡一樣不要炸版，回簡短訊息即可
         return f"（AI 解釋暫時無法使用：{e}）"
 
 
-# ========== (2) 文字前處理 ==========
-import re
-
+# ========== (2) 文字清理 ==========
 def _normalize_text(s: str) -> str:
     """統一中英文字型、移除控制符號與多餘空白"""
     if not isinstance(s, str):
@@ -50,29 +46,24 @@ def _normalize_text(s: str) -> str:
         return result
 
     s = to_halfwidth(s)
-    # 移除不可見控制符號
     s = re.sub(r"[\u200B-\u200D\uFEFF]", "", s)
-    # 統一常見符號
     s = s.replace("（", "(").replace("）", ")").replace("．", ".").replace("、", ".")
     s = re.sub(r"\s+", " ", s).strip()
     return s
 
 
 def escape_markdown(s: str) -> str:
-    """完全清除或跳脫特殊符號，防止選項殘留 *、全形＊ 或其他干擾符號"""
+    """清除或跳脫特殊符號，防止選項殘留 *、全形＊ 等干擾符號"""
     if not isinstance(s, str):
         return ""
     s = _normalize_text(s)
-    # 移除開頭或中間的星號符號（包含全形＊）
     s = re.sub(r"^[\*\＊]+", "", s)
-    s = s.replace("＊", "")
-    s = s.replace("*", "")
-    # 移除多餘冒號或點
+    s = s.replace("＊", "").replace("*", "")
     s = s.strip(" .:")
     return s.strip()
 
 
-
+# ========== (3) 題目/選項解析 ==========
 def parse_question_and_options(raw_text: str):
     """
     當題目本身有 A. B. C. D. 時，從一行裡拆出來
@@ -95,11 +86,10 @@ def parse_question_and_options(raw_text: str):
     return q, [A, B, C, D]
 
 
-# ========== (3) 題庫欄位 → 選項 自動偵測 ==========
+# ========== (4) 自動擷取選項欄位 ==========
 def extract_options(row: pd.Series):
     """
-    依序嘗試多種可能的欄位名稱
-    你的題庫是「選項一～選項四」，這裡有放進來
+    依序嘗試多種欄位名稱
     """
     possible_sets = [
         ["A", "B", "C", "D"],
@@ -119,102 +109,73 @@ def extract_options(row: pd.Series):
     return []
 
 
-
-
-
 # ========== (5) 練習模式題目渲染 ==========
 def render_practice_question(qid: str, question: str, options: list, correct_answer: str, row=None):
     """
-    題目 + 「看不懂題目嗎？」按鈕 + 選項 + 對答案 + 下一題
+    題目 + AI提示 + 選項 + 對答案 + 下一題
     """
-
-    # 1. 若 options 沒資料，試著從這一列(row)抓
+    # 1. 若 options 沒資料，試著從 row 抓
     if (not options or all(o == "" for o in options)) and isinstance(row, pd.Series):
         options = extract_options(row)
 
-    # 2. 若還是沒有，試著從題目文字裡解析
+    # 2. 若還是沒有，從題目中拆
     if not options:
         parsed_q, parsed_opts = parse_question_and_options(question)
         if parsed_opts:
             question, options = parsed_q, parsed_opts
 
-    # 3. 題目
+    # 題目
     st.markdown("### 🧠 **題目：**")
     st.write(question)
 
-    # 4. AI 解釋按鈕（不強制，點了才跑）
+    # 「看不懂題目嗎？」按鈕
     if st.button("🧠 看不懂題目嗎？", key=f"exp_{qid}"):
         with st.spinner("AI 助教說明中..."):
             msg = ai_explain_question(question)
             st.markdown("### 💬 AI 解釋：")
             st.write(msg)
 
-    # 5. 顯示選項
+    # 若沒有選項
     if not options:
-        st.warning("⚠️ 無法取得選項，請檢查題庫欄位（例如『選項一～選項四』或『A～D』）。")
+        st.warning("⚠️ 無法取得選項，請檢查題庫欄位。")
         return
 
-    # 跳脫 markdown，再組成 radio
+    # 準備選項顯示
     display_options = [f"{chr(65+i)}. {escape_markdown(opt)}" for i, opt in enumerate(options)]
 
+    # session 狀態
     sel_key = f"radio_{qid}"
-    ans_flag = f"{qid}_answered"
     sel_store = f"{qid}_selected"
-
-    if ans_flag not in st.session_state:
-        st.session_state[ans_flag] = False
     if sel_store not in st.session_state:
         st.session_state[sel_store] = None
 
-    picked = st.radio(
-        label="",
-        options=display_options,
-        index=None,
-        key=sel_key,
-    )
-
+    picked = st.radio("", display_options, index=None, key=sel_key)
     if picked:
-        # 只存 A/B/C/D
-        st.session_state[sel_store] = picked[0]
+        st.session_state[sel_store] = picked[0]  # 僅存 A/B/C/D
 
-    # 6. 對答案 & 下一題
+    # 按鈕列
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("✅ 對答案", key=f"check_{qid}"):
-            st.session_state[ans_flag] = True
+        check = st.button("✅ 對答案", key=f"check_{qid}")
     with col2:
-        if st.button("➡️ 下一題", key=f"next_{qid}"):
-            chosen = st.session_state.get(sel_store)
-            if chosen == correct_answer:
-                st.session_state["score"] = st.session_state.get("score", 0) + 1
-            else:
-                st.session_state.setdefault("results", []).append({
-                    "題號": qid,
-                    "題目": question,
-                    "你的答案": chosen,
-                    "正確答案": correct_answer,
-                })
-            # 換下一題
-            st.session_state["current_q"] = st.session_state.get("current_q", 0) + 1
-            # 重置「已對答案」狀態
-            st.session_state[ans_flag] = False
-            st.rerun()
+        next_q = st.button("➡️ 下一題", key=f"next_{qid}")
 
-    # 7. 顯示對答案結果
-    if st.button("✅ 對答案"):
-    if selected_answer == correct_answer:
-        st.success("🎯 答對了！")
-    else:
-        # 從 DataFrame 找出正確答案內容
-        correct_option_text = ""
-        try:
-            correct_option_text = current_question_df[
-                current_question_df["答案"] == correct_answer
-            ][f"選項{correct_answer}"].values[0]
-        except Exception:
-            pass
-
-        if correct_option_text:
-            st.error(f"❌ 答錯了！\n\n👉 正確答案：{correct_answer}. {correct_option_text}")
+    # 顯示結果
+    if check:
+        selected = st.session_state.get(sel_store)
+        if not selected:
+            st.warning("請先選擇一個答案！")
+        elif selected == correct_answer:
+            st.success("🎯 答對了！")
         else:
-            st.error(f"❌ 答錯了！正確答案是：{correct_answer}")
+            correct_text = ""
+            if row is not None and f"選項{correct_answer}" in row:
+                correct_text = row[f"選項{correct_answer}"]
+            elif len(options) >= 4:
+                correct_text = options[ord(correct_answer) - 65]
+            st.error(f"❌ 答錯了！\n👉 正確答案：{correct_answer}. {correct_text}")
+
+    # 下一題
+    if next_q:
+        st.session_state["current_q"] = st.session_state.get("current_q", 0) + 1
+        st.rerun()
