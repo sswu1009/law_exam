@@ -1,15 +1,17 @@
-import sys, os
-
-# === 強制把 exam_system 根目錄與專案根目錄都加入搜尋路徑 ===
-BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-PROJECT_ROOT = os.path.abspath(os.path.join(BASE_DIR, ".."))
-for p in [BASE_DIR, PROJECT_ROOT]:
-    if p not in sys.path:
-        sys.path.append(p)
-
-from exam_system.services.ai_client import get_ai_hint
+import os
+import sys
+import importlib.util
 import streamlit as st
 import pandas as pd
+
+# === 🔧 動態載入 services/ai_client.py ===
+CURRENT_DIR = os.path.dirname(__file__)
+SERVICE_PATH = os.path.abspath(os.path.join(CURRENT_DIR, "..", "services", "ai_client.py"))
+
+spec = importlib.util.spec_from_file_location("ai_client", SERVICE_PATH)
+ai_client = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(ai_client)
+get_ai_hint = ai_client.get_ai_hint
 
 # === Streamlit 頁面設定 ===
 st.set_page_config(page_title="練習模式", layout="wide")
