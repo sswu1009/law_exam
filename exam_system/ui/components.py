@@ -201,9 +201,20 @@ def render_practice_question(qid: str, question: str, options: list, correct_ans
             st.rerun()
 
     # 7. 顯示對答案結果
-    if st.session_state.get(ans_flag):
-        chosen = st.session_state.get(sel_store)
-        if chosen == correct_answer:
-            st.success(f"✅ 答對了！正確答案：{correct_answer}")
+    if st.button("✅ 對答案"):
+    if selected_answer == correct_answer:
+        st.success("🎯 答對了！")
+    else:
+        # 從 DataFrame 找出正確答案內容
+        correct_option_text = ""
+        try:
+            correct_option_text = current_question_df[
+                current_question_df["答案"] == correct_answer
+            ][f"選項{correct_answer}"].values[0]
+        except Exception:
+            pass
+
+        if correct_option_text:
+            st.error(f"❌ 答錯了！\n\n👉 正確答案：{correct_answer}. {correct_option_text}")
         else:
-            st.error(f"❌ 答錯了！正確答案：{correct_answer}")
+            st.error(f"❌ 答錯了！正確答案是：{correct_answer}")
