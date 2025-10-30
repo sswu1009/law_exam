@@ -53,7 +53,7 @@ def main():
         question = str(row.get("題目", ""))
         options = [str(row.get(f"選項{opt}", "")) for opt in ["A", "B", "C", "D"] if pd.notna(row.get(f"選項{opt}", ""))]
         correct = str(row.get("答案", "")).strip()
-        render_practice_question(qid, question, options, correct_answer=correct)
+        render_practice_question(qid, question, [], correct_answer=correct, row=row)
         st.caption(f"📘 題號 {i+1} / 共 {len(df)} 題")
     else:
         st.success(f"🎉 練習完成，共 {i} 題，答對 {st.session_state.get('score', 0)} 題")
