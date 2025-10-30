@@ -1,5 +1,4 @@
 import os
-import sys
 import importlib.util
 import streamlit as st
 import pandas as pd
@@ -11,7 +10,8 @@ SERVICE_PATH = os.path.abspath(os.path.join(CURRENT_DIR, "..", "services", "ai_c
 spec = importlib.util.spec_from_file_location("ai_client", SERVICE_PATH)
 ai_client = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ai_client)
-get_ai_hint = ai_client.generate_ai_hint  # <-- ✅ 改成正確名稱
+get_ai_hint = ai_client.get_ai_response  # ✅ 改成實際存在的函式
+
 
 # === Streamlit 頁面設定 ===
 st.set_page_config(page_title="練習模式", layout="wide")
