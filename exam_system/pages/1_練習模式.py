@@ -1,86 +1,114 @@
-import os
-import importlib.util
+# pages/1_練習模式.py
 import streamlit as st
 import pandas as pd
 
-# === 🔧 動態載入 services/ai_client.py ===
-CURRENT_DIR = os.path.dirname(__file__)
-SERVICE_PATH = os.path.abspath(os.path.join(CURRENT_DIR, "..", "services", "ai_client.py"))
+from services.db_client import (
+    list_categories,
+    list_chapters,
+    pick_questions,
+)
+from ui.components import (
+    render_header,
+    render_category_selector,
+    render_chapter_selector,
+    render_question_card,
+    render_question_summary,
+)
+from ui.layout import render_sidebar_info, render_footer
 
-spec = importlib.util.spec_from_file_location("ai_client", SERVICE_PATH)
-ai_client = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(ai_client)
-get_ai_hint = ai_client.get_ai_response  # ✅ 改成實際存在的函式
 
-
-# === Streamlit 頁面設定 ===
+# === 頁面初始設定 ===
 st.set_page_config(page_title="練習模式", layout="wide")
-st.title("🧠 練習模式")
+render_header("🧠 練習模式", "單題作答、即時回饋與 AI 助教提示")
+render_sidebar_info()
 
-# === 載入題庫 ===
-@st.cache_data
-def load_question_bank(domain):
-    file_map = {
-        "人身": "exam_system/bank/life.csv",
-        "外幣": "exam_system/bank/fx.csv",
-        "投資型": "exam_system/bank/invest.csv"
-    }
-    df = pd.read_csv(file_map[domain])
-    df = df.dropna(subset=["題目", "答案"])
-    return df
 
-# === 使用者設定 ===
-domain = st.selectbox("請選擇題庫領域：", ["人身", "外幣", "投資型"])
-num_questions = st.number_input("請選擇要練習的題數：", min_value=1, max_value=50, value=5, step=1)
+# === 狀態初始化 ===
+if "practice_initialized" not in st.session_state:
+    st.session_state.practice_initialized = False
+    st.session_state.questions_df = pd.DataFrame()
+    st.session_state.current_index = 0
+    st.session_state.correct_count = 0
 
-# === 開始練習 ===
-if st.button("開始練習"):
-    st.session_state.current_q = 0
-    st.session_state.questions = load_question_bank(domain).sample(num_questions).to_dict(orient="records")
-    st.session_state.finished = False
+
+# === 題庫選擇 ===
+categories = list_categories()
+selected_category = render_category_selector(categories)
+
+if selected_category:
+    chapters = list_chapters(selected_category)
+    selected_chapter = render_chapter_selector(chapters)
+else:
+    st.stop()
+
+
+# === 題庫載入與出題 ===
+col1, col2 = st.columns([3, 1])
+with col1:
+    if st.button("🎯 開始練習", use_container_width=True):
+        df = pick_questions(selected_category, chapter=selected_chapter, limit=10)
+        if df.empty:
+            st.warning("此章節暫無題目。")
+            st.stop()
+
+        st.session_state.questions_df = df
+        st.session_state.current_index = 0
+        st.session_state.correct_count = 0
+        st.session_state.practice_initialized = True
+
+
+# === 若尚未按下開始練習則停止 ===
+if not st.session_state.practice_initialized or st.session_state.questions_df.empty:
+    st.info("請選擇題庫與章節後按下『開始練習』。")
+    render_footer()
+    st.stop()
+
 
 # === 顯示題目 ===
-if "questions" in st.session_state and not st.session_state.get("finished", False):
-    q_list = st.session_state.questions
-    q_index = st.session_state.current_q
-    q_data = q_list[q_index]
+df = st.session_state.questions_df
+idx = st.session_state.current_index
 
-    st.markdown(f"### 🧩 題目 {q_index + 1} / {len(q_list)}")
-    st.markdown(f"**{q_data['題目']}**")
+if idx < len(df):
+    q = df.iloc[idx]
+    options = {
+        "A": q.get("選項A", ""),
+        "B": q.get("選項B", ""),
+        "C": q.get("選項C", ""),
+        "D": q.get("選項D", ""),
+    }
+    correct = str(q.get("答案", "")).strip().upper()[:1]
 
-    options = [q_data[c] for c in ["A", "B", "C", "D"] if c in q_data and pd.notna(q_data[c])]
-    correct_answer = str(q_data["答案"]).strip().upper()
+    # 顯示題目卡
+    render_question_card(
+        q_index=idx,
+        question_text=q.get("題目", ""),
+        options=options,
+        correct_answer=correct,
+        show_ai_hint=True,
+    )
 
-    user_choice = st.radio("請選擇答案：", options, key=f"q_{q_index}")
+    # 下一題按鈕
+    st.divider()
+    if st.button("➡️ 下一題", use_container_width=True):
+        # 若上題答對則計數
+        last_key = f"q{idx}_ans"
+        if st.session_state.get(last_key) == correct:
+            st.session_state.correct_count += 1
 
-    col1, col2 = st.columns([1, 1])
-    with col1:
-        if st.button("對答案", key=f"check_{q_index}"):
-            if not user_choice:
-                st.warning("請先選擇答案")
-            else:
-                selected_letter = user_choice[0].upper()
-                if selected_letter == correct_answer:
-                    st.success("✅ 答對了！")
-                else:
-                    st.error(f"❌ 答錯了！ 正確答案：{correct_answer}")
+        st.session_state.current_index += 1
+        st.rerun()
 
-    with col2:
-        if st.button("看不懂題目嗎？", key=f"hint_{q_index}"):
-            try:
-                hint = get_ai_hint(q_data["題目"], domain)
-                st.info(hint or "AI 提示暫無法提供")
-            except Exception as e:
-                st.warning(f"AI 提示功能異常：{e}")
+else:
+    # === 全部答完 ===
+    render_question_summary(
+        total=len(df),
+        correct=st.session_state.correct_count,
+    )
+    if st.button("🔁 重新開始", use_container_width=True):
+        st.session_state.practice_initialized = False
+        st.session_state.questions_df = pd.DataFrame()
+        st.session_state.current_index = 0
+        st.session_state.correct_count = 0
+        st.rerun()
 
-    if st.button("➡️ 下一題", key=f"next_{q_index}"):
-        if q_index + 1 < len(q_list):
-            st.session_state.current_q += 1
-            st.rerun()
-        else:
-            st.session_state.finished = True
-            st.success("🎉 所有題目已完成練習！")
-
-# === 結束畫面 ===
-elif "finished" in st.session_state and st.session_state.finished:
-    st.success("✅ 練習結束，請回上方重新選擇題庫以再練一次。")
+render_footer()
