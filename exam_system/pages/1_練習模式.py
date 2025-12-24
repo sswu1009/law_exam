@@ -8,13 +8,17 @@ from services.db_client import (
     pick_questions,
 )
 from ui.components import (
-    render_header,
     render_category_selector,
     render_chapter_selector,
     render_question_card,
     render_question_summary,
 )
-from ui.layout import render_sidebar_info, render_footer
+
+from ui.layout import (
+    render_header,
+    render_sidebar_info,
+    render_footer,
+)
 
 
 # === 頁面初始設定 ===
