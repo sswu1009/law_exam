@@ -128,6 +128,7 @@ def pick_questions(
         df = df.head(limit)
 
     return df.reset_index(drop=True)
+    
 def extract_options_from_row(row: dict) -> dict:
     """
     從 Excel row 中動態擷取選項內容
