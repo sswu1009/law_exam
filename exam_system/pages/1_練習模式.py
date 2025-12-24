@@ -7,13 +7,15 @@ from services.db_client import (
     list_chapters,
     pick_questions,
 )
+# ===== UI components（小元件）=====
 from ui.components import (
-    render_category_selector,
-    render_chapter_selector,
     render_question_card,
     render_question_summary,
+    render_category_selector,
+    render_chapter_selector,
 )
 
+# ===== Layout（頁面骨架）=====
 from ui.layout import (
     render_header,
     render_sidebar_info,
