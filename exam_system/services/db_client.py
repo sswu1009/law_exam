@@ -128,3 +128,26 @@ def pick_questions(
         df = df.head(limit)
 
     return df.reset_index(drop=True)
+def extract_options_from_row(row: dict) -> dict:
+    """
+    從 Excel row 中動態擷取選項內容
+    支援：選項A / A / 選項Ａ 等格式
+    """
+    options = {}
+
+    for key, value in row.items():
+        if not value:
+            continue
+
+        key_str = str(key).strip()
+
+        # 常見選項欄位判斷
+        if key_str in ["A", "B", "C", "D"]:
+            options[key_str] = str(value).strip()
+
+        elif key_str.startswith("選項"):
+            # 例如：選項A、選項Ｂ
+            option_key = key_str.replace("選項", "").strip()
+            options[option_key] = str(value).strip()
+
+    return options
