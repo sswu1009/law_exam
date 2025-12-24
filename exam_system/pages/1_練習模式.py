@@ -75,10 +75,10 @@ idx = st.session_state.current_index
 if idx < len(df):
     q = df.iloc[idx]
     options = {
-        "A": q.get("選項A", ""),
-        "B": q.get("選項B", ""),
-        "C": q.get("選項C", ""),
-        "D": q.get("選項D", ""),
+    "A": q.get("選項A") or q.get("A選項") or "",
+    "B": q.get("選項B") or q.get("B選項") or "",
+    "C": q.get("選項C") or q.get("C選項") or "",
+    "D": q.get("選項D") or q.get("D選項") or "",
     }
     correct = str(q.get("答案", "")).strip().upper()[:1]
 
