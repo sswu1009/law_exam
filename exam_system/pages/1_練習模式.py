@@ -1,3 +1,12 @@
+from services.db_client import load_all_banks
+from config.settings import BANK_DIR
+
+st.write("BANK_DIR =", BANK_DIR)
+st.write("題庫分類 =", list(load_all_banks().keys()))
+
+
+
+
 # pages/1_練習模式.py
 import streamlit as st
 import pandas as pd
