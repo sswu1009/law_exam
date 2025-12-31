@@ -1,40 +1,26 @@
-import os
 import streamlit as st
+import os
 
-# ========================
-# 📘 基本設定
-# ========================
+# === 系統基本設定 ===
 APP_TITLE = "錠嵂保經 AI 模擬考系統"
-APP_ICON = "📘"
+APP_ICON = "🛡️"
 
-def init_page_config():
-    st.set_page_config(page_title=APP_TITLE, layout="wide", page_icon=APP_ICON)
+# === 路徑設定 ===
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# 支援 bank 資料夾 (優先讀取環境變數，否則預設 bank/)
+BANKS_DIR = st.secrets.get("BANKS_DIR", os.path.join(BASE_DIR, "bank"))
 
-# ------------------------
-# 模型設定
-# ------------------------
-GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", "")
+# === AI 設定 ===
+GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", os.getenv("GEMINI_API_KEY", ""))
 GEMINI_MODEL = st.secrets.get("GEMINI_MODEL", "gemini-1.5-flash")
 
-OLLAMA_ENDPOINT = os.environ.get("OLLAMA_ENDPOINT", "http://localhost:11434")
-OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen2.5:3b-instruct-q4_0")
+# === 題庫分類 (可依照 bank 資料夾結構動態調整，這裡保留預設值) ===
+DEFAULT_CATEGORIES = ["人身", "外幣", "投資型", "產險"]
 
-# ------------------------
-# 題庫設定
-# ------------------------
-#QUESTION_PATH = "data/question_bank.xlsx"
-# 改成指向 bank 資料夾
-QUESTION_PATH = "bank/"
-SHEET_NAMES = ["人身", "外幣", "投資型"]
-
-# ------------------------
-# 系統常數
-# ------------------------
-LETTERS = ["A", "B", "C", "D"]
-AI_HINT_BUTTON = "🤖 題目解釋"
-OPENBOOK_BUTTON = "📖 開啟章節解釋"
-FEEDBACK_GOOD = "👍"
-FEEDBACK_BAD = "👎"
-
-# ✅ 改名為公開變數
-DOMAIN_OPTIONS = ["人身", "外幣", "投資型"]
+def init_page_config():
+    st.set_page_config(
+        page_title=APP_TITLE,
+        page_icon=APP_ICON,
+        layout="wide",
+        initial_sidebar_state="expanded"
+    )
