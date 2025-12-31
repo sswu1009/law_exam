@@ -1,20 +1,18 @@
-from pathlib import Path
-import sys
 import streamlit as st
 
-# ✅ 確保 exam_system/ 目錄在 sys.path，避免 import 找不到
-BASE_DIR = Path(__file__).resolve().parent
-if str(BASE_DIR) not in sys.path:
-    sys.path.insert(0, str(BASE_DIR))
+from exam_system.ui.layout import apply_page_config, render_header, render_usage_guide
+from exam_system.ui.admin_panel import render_admin_panel
+from exam_system.services.github_repo import migrate_pointer_prefix_if_needed
 
+apply_page_config()
 
-def main():
-    st.set_page_config(page_title="錠嵂保經 AI 模擬考系統", layout="wide")
+# pointer 自動遷移（banks/ -> bank/）
+migrate_pointer_prefix_if_needed()
 
-    st.sidebar.page_link("pages/1_練習模式.py", label="🧠 練習模式")
-    st.sidebar.page_link("pages/2_模擬考模式.py", label="📝 模擬考模式")
-    # 若尚未建立 3_AI解釋區.py，先不要加 page_link，避免 PageNotFound
+render_header("錠嵂AI考照機器人")
+render_usage_guide()
 
+st.info("請從左側 Pages 選單進入：練習模式 / 模擬考模式。")
 
-if __name__ == "__main__":
-    main()
+# sidebar 管理者面板（可上傳題庫/切換 pointer）
+render_admin_panel()
