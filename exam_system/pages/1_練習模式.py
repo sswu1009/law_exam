@@ -1,3 +1,9 @@
+import sys
+from pathlib import Path
+BASE_DIR = Path(__file__).resolve().parents[1]  # exam_system
+if str(BASE_DIR) not in sys.path:
+    sys.path.insert(0, str(BASE_DIR))
+
 import streamlit as st
 
 from config.settings import BANK_DIR
