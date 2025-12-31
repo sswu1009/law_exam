@@ -1,88 +1,47 @@
-# services/ai_client.py
-import os
-from typing import Optional
-
 import streamlit as st
+import google.generativeai as genai
+from config import settings
 
-# 若你要用 google.generativeai
-try:
-    import google.generativeai as genai
-    _HAS_GEMINI = True
-except ImportError:
-    _HAS_GEMINI = False
+def is_ready():
+    return bool(settings.GEMINI_API_KEY)
 
-import requests  # 給 Ollama 用
+def get_ai_explanation(question: dict):
+    """
+    question dict 需包含: Question, OptionA~D, Answer, Explanation
+    """
+    if not is_ready():
+        return "⚠️ 請先設定 GEMINI_API_KEY"
 
-
-# === 環境設定 ===
-DEFAULT_MODEL = "gemini"  # "gemini" or "ollama"
-GEMINI_MODEL_NAME = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
-OLLAMA_MODEL_NAME = os.getenv("OLLAMA_MODEL", "qwen2.5")
-
-
-def _gemini_ready() -> bool:
-    return _HAS_GEMINI and ("GEMINI_API_KEY" in st.secrets or os.getenv("GEMINI_API_KEY"))
-
-
-def _gemini_generate(system_msg: str, user_msg: str) -> str:
-    api_key = st.secrets.get("GEMINI_API_KEY", os.getenv("GEMINI_API_KEY", ""))
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel(GEMINI_MODEL_NAME)
-    prompt = f"[系統指示]\n{system_msg}\n\n[使用者題目]\n{user_msg}".strip()
-    resp = model.generate_content(prompt)
-    text = (resp.text or "").strip()
-    return text
-
-
-def _ollama_ready() -> bool:
-    # 預設你本機有跑 ollama http://localhost:11434
-    return True
-
-
-def _ollama_generate(system_msg: str, user_msg: str) -> str:
-    url = "http://localhost:11434/api/generate"
-    prompt = f"{system_msg}\n\n{user_msg}"
-    payload = {
-        "model": OLLAMA_MODEL_NAME,
-        "prompt": prompt,
-        "stream": False,
-    }
     try:
-        r = requests.post(url, json=payload, timeout=30)
-        r.raise_for_status()
-        data = r.json()
-        return data.get("response", "").strip()
+        genai.configure(api_key=settings.GEMINI_API_KEY)
+        model = genai.GenerativeModel(settings.GEMINI_MODEL)
+        
+        # 組裝 Prompt
+        options_text = "\n".join([f"{k[-1]}. {v}" for k, v in question.items() if k.startswith("Option") and v])
+        
+        prompt = f"""
+        [角色設定]
+        你是一位專業的保險證照考試助教。
+        
+        [任務]
+        請針對以下題目進行解析。
+        1. 解釋為何正確答案是正確的。
+        2. 簡單說明其他選項為何錯誤。
+        3. 若有官方詳解，請參考並補充，但不要照抄。
+        
+        [題目資訊]
+        題目: {question.get('Question')}
+        選項:
+        {options_text}
+        正確答案: {question.get('Answer')}
+        官方詳解: {question.get('Explanation', '無')}
+        
+        [輸出格式]
+        請用條列式清楚說明，語氣親切專業。
+        最後加上一行: [Powered by Gemini]
+        """
+        
+        resp = model.generate_content(prompt)
+        return resp.text
     except Exception as e:
-        return f"無法取得 Ollama 回應：{e}"
-
-
-def get_ai_hint(question_text: str, choices: Optional[dict] = None, correct: Optional[str] = None) -> str:
-    """
-    統一對外的 AI 解析介面。
-    傳入題目文字、選項、正解（可選），回傳 AI 解析文字。
-    最後一行會附上 [Powered by Gemini] 做除錯。
-    """
-    system_msg = (
-        "你是一位台灣保險相關證照考試的解析助教，請用精簡條列說明為何正確答案正確，並說明其他選項錯在哪裡。"
-        "必要時引用法規條文名稱，但不要捏造不存在的法條。"
-    )
-
-    user_parts = [f"題目：{question_text}"]
-    if choices:
-        for key, val in choices.items():
-            user_parts.append(f"{key}. {val}")
-    if correct:
-        user_parts.append(f"正確答案：{correct}")
-
-    user_msg = "\n".join(user_parts)
-
-    # 優先 Gemini
-    if _gemini_ready():
-        ans = _gemini_generate(system_msg, user_msg)
-        # 標註來源
-        return ans + "\n\n[Powered by Gemini]"
-    else:
-        # 改走 Ollama
-        ans = _ollama_generate(system_msg, user_msg)
-        # 若你也想標註，可改成 Ollama
-        return ans + "\n\n[Powered by Ollama]"
+        return f"AI 連線錯誤: {str(e)}"
