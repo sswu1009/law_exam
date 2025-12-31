@@ -1,89 +1,53 @@
+# exam_system/ui/components.py
 import streamlit as st
+from typing import Dict, Optional
 from services.ai_client import get_ai_hint
 
-def render_question_card(row: dict, index: int, mode="practice", user_ans=None):
-    """
-    通用題目卡片
-    mode: 'practice' (練習模式), 'exam' (模擬考作答), 'review' (復盤)
-    """
-    qid = f"{mode}_{row['ID']}"
-    question_text = row['Question']
-    correct = row['Answer']
-    explanation = row.get('Explanation', '')
+def render_question_card(q_index: int, question_text: str, options: Dict[str, str], correct_answer: str, show_ai_hint: bool = False):
+    st.markdown(f"### 🧩 第 {q_index + 1} 題")
+    st.write(question_text)
 
-    st.markdown(f"### Q{index+1}. {question_text}")
-    
-    # 準備選項 Dict
-    options = {}
-    for code in ["A", "B", "C", "D"]:
-        val = row.get(f"Option{code}")
-        if val:
-            options[code] = val
+    key_prefix = f"q{q_index}"
 
-    # === 模式 A: 練習模式 (即時回饋) ===
-    if mode == "practice":
-        # 使用 radio 顯示選項
-        choice_list = [f"{k}. {v}" for k, v in options.items()]
-        selected = st.radio("請作答：", choice_list, index=None, key=qid)
-        
-        if selected:
-            sel_code = selected.split(".")[0]
-            if sel_code == correct:
-                st.success("✅ 答對了！")
-            else:
-                st.error(f"❌ 答錯了，正確答案是 {correct}")
-            
-            # AI 按鈕
-            if st.button("🤖 AI 詳解", key=f"ai_{qid}"):
-                with st.spinner("AI 分析中..."):
-                    hint = get_ai_hint(question_text, options, correct, explanation)
-                    st.info(hint)
+    clean_options = {k: v for k, v in options.items() if v and str(v).lower() != "nan"}
 
-    # === 模式 B: 模擬考作答 (無回饋) ===
-    elif mode == "exam":
-        choice_list = [f"{k}. {v}" for k, v in options.items()]
-        # 嘗試還原使用者之前的選擇
-        prev_idx = None
-        if user_ans:
-            # 找出 user_ans 在 list 中的 index
-            for i, c_str in enumerate(choice_list):
-                if c_str.startswith(f"{user_ans}."):
-                    prev_idx = i
-                    break
-        
-        selected = st.radio(
-            "選擇答案：", 
-            choice_list, 
-            index=prev_idx, 
-            key=qid
-        )
-        # 回傳選擇代號 (A, B...) 供外部儲存
-        return selected.split(".")[0] if selected else None
+    if not clean_options:
+        st.warning("⚠️ 本題未提供選項內容")
+        return
 
-    # === 模式 C: 復盤 (顯示對錯與詳解) ===
-    elif mode == "review":
-        st.markdown("---")
-        for code, text in options.items():
-            prefix = ""
-            color = "black"
-            weight = "normal"
-            
-            if code == correct:
-                prefix = "✅ "
-                color = "green"
-                weight = "bold"
-            elif code == user_ans and code != correct:
-                prefix = "❌ (你的答案) "
-                color = "red"
-                weight = "bold"
-            elif code == user_ans:
-                prefix = "(你的答案) "
-            
-            st.markdown(f"<span style='color:{color}; font-weight:{weight}'>{prefix}{code}. {text}</span>", unsafe_allow_html=True)
-            
-        with st.expander(f"📖 查看詳解 ({correct})"):
-            st.write(f"**官方詳解**：{explanation}")
-            if st.button("🤖 AI 深度解析", key=f"rev_ai_{qid}"):
-                with st.spinner("AI 分析中..."):
-                    hint = get_ai_hint(question_text, options, correct, explanation)
-                    st.write(hint)
+    selected = st.radio(
+        "請選擇答案：",
+        options=list(clean_options.keys()),
+        format_func=lambda x: f"{x}. {clean_options[x]}",
+        key=f"{key_prefix}_ans",
+    )
+
+    if selected:
+        if selected == correct_answer:
+            st.success("✅ 答對了")
+        else:
+            st.error(f"❌ 答錯了，正確答案是 {correct_answer}")
+
+    if show_ai_hint and selected:
+        with st.expander("📘 AI 助教解析"):
+            st.markdown(get_ai_hint(question_text=question_text, choices=clean_options, correct=correct_answer))
+
+def render_question_summary(total: int, correct: int):
+    st.divider()
+    st.subheader("📊 答題統計")
+    st.write(f"總題數：{total}")
+    st.write(f"答對題數：{correct}")
+
+def render_category_selector(categories: list) -> Optional[str]:
+    st.sidebar.markdown("## 📚 題庫類別")
+    if not categories:
+        st.warning("未偵測到題庫資料，請確認 bank/ 結構與 .xlsw 檔案。")
+        return None
+    return st.sidebar.selectbox("選擇題庫類別：", categories)
+
+def render_chapter_selector(chapters: list) -> Optional[str]:
+    if not chapters:
+        st.info("此類別未提供章節分類")
+        return None
+    chapter = st.sidebar.selectbox("選擇章節：", ["全部"] + chapters)
+    return None if chapter == "全部" else chapter
