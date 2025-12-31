@@ -1,18 +1,18 @@
 import sys
 from pathlib import Path
+
+# ✅ 確保 pages/ 可以 import 到 exam_system 下的模組
 BASE_DIR = Path(__file__).resolve().parents[1]  # exam_system
 if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
-import streamlit as st
+import streamlit as st  # ✅ 一定要在 st.write 之前
 
 from config.settings import BANK_DIR
 from services.db_client import load_all_banks
 
 st.write("BANK_DIR =", BANK_DIR)
 st.write("題庫分類 =", list(load_all_banks().keys()))
-
-
 
 # pages/1_練習模式.py
 import streamlit as st
