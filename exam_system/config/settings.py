@@ -1,30 +1,45 @@
+from __future__ import annotations
 import streamlit as st
-import os
 
-# === 系統基本設定 ===
-APP_TITLE = "錠嵂保經 AI 模擬考系統"
-APP_ICON = "🛡️"
+# -----------------------------
+# App
+# -----------------------------
+APP_TITLE = "錠嵂AI考照機器人"
+PAGE_TITLE = "錠嵂AI考照"
+LAYOUT = "wide"
 
-# === 路徑設定 ===
-from pathlib import Path
+# -----------------------------
+# Gemini
+# -----------------------------
+def gemini_ready() -> bool:
+    return bool(st.secrets.get("GEMINI_API_KEY"))
 
-# exam_system/config/settings.py -> exam_system/
-BASE_DIR = Path(__file__).resolve().parents[1]  # exam_system
-BANK_DIR = BASE_DIR / "bank"
-
-SUPPORTED_EXTS = {".xlsx", ".xlsm", ".xlsw", ".xls"}
-
-# === AI 設定 ===
-GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", os.getenv("GEMINI_API_KEY", ""))
 GEMINI_MODEL = st.secrets.get("GEMINI_MODEL", "gemini-1.5-flash")
 
-# === 題庫分類 (可依照 bank 資料夾結構動態調整，這裡保留預設值) ===
-DEFAULT_CATEGORIES = ["人身", "外幣", "投資型", "產險"]
+# -----------------------------
+# GitHub repo settings (Secrets)
+# -----------------------------
+GH_OWNER  = st.secrets.get("REPO_OWNER")
+GH_REPO   = st.secrets.get("REPO_NAME")
+GH_BRANCH = st.secrets.get("REPO_BRANCH", "main")
+GH_TOKEN  = st.secrets.get("GH_TOKEN")
 
-def init_page_config():
-    st.set_page_config(
-        page_title=APP_TITLE,
-        page_icon=APP_ICON,
-        layout="wide",
-        initial_sidebar_state="expanded"
-    )
+BANKS_DIR    = st.secrets.get("BANKS_DIR", "bank")
+POINTER_FILE = st.secrets.get("POINTER_FILE", "bank_pointer.json")
+
+BANK_TYPES = ["人身", "投資型", "外幣", "產險"]
+
+ADMIN_PASSWORD = st.secrets.get("ADMIN_PASSWORD", "")
+
+def type_dir(t: str) -> str:
+    return f"{BANKS_DIR}/{t}"
+
+def gh_write_ready() -> tuple[bool, str]:
+    missing = []
+    if not GH_OWNER:  missing.append("REPO_OWNER")
+    if not GH_REPO:   missing.append("REPO_NAME")
+    if not GH_BRANCH: missing.append("REPO_BRANCH")
+    if not GH_TOKEN:  missing.append("GH_TOKEN (需要寫入權限)")
+    if missing:
+        return False, "缺少 secrets：" + ", ".join(missing)
+    return True, ""
