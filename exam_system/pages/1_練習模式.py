@@ -1,17 +1,13 @@
-import sys
-from pathlib import Path
-
-BASE_DIR = Path(__file__).resolve().parents[1]
-if str(BASE_DIR) not in sys.path:
-    sys.path.insert(0, str(BASE_DIR))
-
 import streamlit as st
+import inspect
 
-from config.settings import BANK_DIR
-from services.db_client import load_all_banks
+st.write("RUNNING FILE =", __file__)
+st.write("FIRST 30 LINES PREVIEW:")
+with open(__file__, "r", encoding="utf-8") as f:
+    st.code("".join(f.readlines()[:30]), language="python")
 
-st.write("BANK_DIR =", BANK_DIR)
-st.write("題庫分類 =", list(load_all_banks().keys()))
+st.stop()
+
 
 # pages/1_練習模式.py
 import streamlit as st
