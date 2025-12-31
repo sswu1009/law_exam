@@ -10,7 +10,6 @@ if not banks or all(len(v) == 0 for v in banks.values()):
     st.warning("⚠️ 尚未偵測到題庫，請檢查 exam_system/bank/ 資料夾與檔案副檔名。")
     st.stop()
 
-# 左側：分類
 with st.sidebar:
     st.subheader("📚 題庫類別")
     category = st.selectbox("選擇題庫類別", options=list(banks.keys()))
@@ -26,7 +25,6 @@ chosen_file = next(f for f in files if f.name == chosen)
 
 st.info(f"目前選擇：{chosen_file.category} / {chosen_file.name}")
 
-# 先讀出 dataframe（確認讀得到）
 try:
     df = read_bank_excel(chosen_file.path)
     st.success(f"✅ 讀取成功：共 {len(df)} 筆、{len(df.columns)} 欄")
