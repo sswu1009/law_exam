@@ -1,3 +1,7 @@
+# pages/1_練習模式.py
+import streamlit as st
+import pandas as pd
+
 import sys
 from pathlib import Path
 
@@ -14,9 +18,7 @@ from services.db_client import load_all_banks
 st.write("BANK_DIR =", BANK_DIR)
 st.write("題庫分類 =", list(load_all_banks().keys()))
 
-# pages/1_練習模式.py
-import streamlit as st
-import pandas as pd
+
 
 from services.db_client import list_categories, list_chapters, pick_questions
 from ui.components import render_question_card, render_question_summary, render_category_selector, render_chapter_selector
