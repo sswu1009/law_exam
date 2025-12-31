@@ -1,58 +1,78 @@
+# pages/1_練習模式.py
 import streamlit as st
-from services.db_client import load_all_banks, list_chapters
-from ui.layout import render_header
-from ui.components import render_question_card
+import pandas as pd
+
+from services.db_client import list_categories, list_chapters, pick_questions
+from ui.components import render_question_card, render_question_summary, render_category_selector, render_chapter_selector
+from ui.layout import render_header, render_sidebar_info, render_footer
 
 st.set_page_config(page_title="練習模式", layout="wide")
-render_header("🧠 練習模式", "單題練習、即時回饋")
+render_header("🧠 練習模式", "單題作答、即時回饋與 AI 助教提示")
+render_sidebar_info()
 
-# 1. 載入題庫
-all_banks = load_all_banks()
-if not all_banks:
-    st.warning("⚠️ 尚未偵測到題庫，請檢查 bank/ 資料夾。")
+if "practice_initialized" not in st.session_state:
+    st.session_state.practice_initialized = False
+    st.session_state.questions_df = pd.DataFrame()
+    st.session_state.current_index = 0
+    st.session_state.correct_count = 0
+
+categories = list_categories()
+selected_category = render_category_selector(categories)
+if not selected_category:
     st.stop()
 
-# 2. Sidebar 選單
-with st.sidebar:
-    st.header("設定")
-    domain = st.selectbox("選擇分類", list(all_banks.keys()))
-    df = all_banks[domain]
-    
-    chapters = list_chapters(df)
-    chapter = st.selectbox("選擇章節", ["全部"] + chapters)
-    
-    if st.button("🔄 重置題目"):
-        st.session_state.pop("practice_df", None)
-        st.rerun()
+chapters = list_chapters(selected_category)
+selected_chapter = render_chapter_selector(chapters)
 
-# 3. 題目狀態管理
-if "practice_df" not in st.session_state:
-    # 篩選題目
-    target_df = df if chapter == "全部" else df[df["Chapter"] == chapter]
-    # 隨機取 50 題
-    st.session_state.practice_df = target_df.sample(n=min(50, len(target_df))).reset_index(drop=True)
-    st.session_state.p_index = 0
+if st.button("🎯 開始練習", use_container_width=True):
+    df = pick_questions(selected_category, chapter=selected_chapter, limit=10)
+    if df.empty:
+        st.warning("此章節暫無題目。")
+        st.stop()
 
-current_df = st.session_state.practice_df
-idx = st.session_state.p_index
+    st.session_state.questions_df = df
+    st.session_state.current_index = 0
+    st.session_state.correct_count = 0
+    st.session_state.practice_initialized = True
 
-if current_df.empty:
-    st.info("此章節無題目。")
+if not st.session_state.practice_initialized or st.session_state.questions_df.empty:
+    st.info("請選擇題庫與章節後按下『開始練習』。")
+    render_footer()
     st.stop()
 
-# 4. 顯示題目
-row = current_df.iloc[idx].to_dict()
-render_question_card(row, idx, mode="practice")
+df = st.session_state.questions_df
+idx = st.session_state.current_index
 
-# 5. 翻頁按鈕
-c1, c2, c3 = st.columns([1, 1, 4])
-with c1:
-    if st.button("⬅️ 上一題") and idx > 0:
-        st.session_state.p_index -= 1
+if idx < len(df):
+    q = df.iloc[idx]
+
+    # 先用最常見欄位名（你之後若要做更強的動態欄位偵測，再加）
+    options = {
+        "A": str(q.get("選項A", "")).strip(),
+        "B": str(q.get("選項B", "")).strip(),
+        "C": str(q.get("選項C", "")).strip(),
+        "D": str(q.get("選項D", "")).strip(),
+    }
+
+    correct = str(q.get("答案", "")).strip().upper()[:1]
+    question_text = str(q.get("題目", "")).strip()
+
+    render_question_card(idx, question_text, options, correct, show_ai_hint=True)
+
+    st.divider()
+    if st.button("➡️ 下一題", use_container_width=True):
+        last_key = f"q{idx}_ans"
+        if st.session_state.get(last_key) == correct:
+            st.session_state.correct_count += 1
+        st.session_state.current_index += 1
         st.rerun()
-with c2:
-    if st.button("下一題 ➡️") and idx < len(current_df) - 1:
-        st.session_state.p_index += 1
+else:
+    render_question_summary(total=len(df), correct=st.session_state.correct_count)
+    if st.button("🔁 重新開始", use_container_width=True):
+        st.session_state.practice_initialized = False
+        st.session_state.questions_df = pd.DataFrame()
+        st.session_state.current_index = 0
+        st.session_state.correct_count = 0
         st.rerun()
 
-st.caption(f"進度：{idx + 1} / {len(current_df)}")
+render_footer()
