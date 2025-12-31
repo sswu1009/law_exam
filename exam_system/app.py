@@ -1,23 +1,37 @@
 import streamlit as st
-from config.settings import APP_TITLE, APP_ICON, init_page_config
-from ui.layout import render_header
+from config.settings import init_page_config
+from ui.layout import render_header, render_footer
 
-# 初始化頁面設定
+# 初始化設定 (必須在最前面)
 init_page_config()
 
-# 主頁
 def main():
     render_header("📘 錠嵂保經 AI 模擬考系統")
 
     st.markdown("""
-    ### 模式選擇
-    選擇你要進入的模式 👇  
-    - **練習模式**：支援 AI 題目提示與章節導讀  
-    - **模擬考模式**：計時作答與分數統計  
+    ### 歡迎使用
+    請從下方選擇模式開始：
+    
+    ---
+    
+    #### 🧠 **練習模式**
+    - 逐題顯示，答錯即時提示
+    - 支援 AI 助教解析
+    
+    #### 📝 **模擬考模式**
+    - 模擬真實考試情境
+    - 計時、交卷後結算成績
+    
+    ---
     """)
-
-    st.page_link("pages/1_練習模式.py", label="🧠 練習模式")
-    st.page_link("pages/2_模擬考模式.py", label="📝 模擬考模式")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        st.page_link("pages/1_練習模式.py", label="前往 練習模式", icon="💪", use_container_width=True)
+    with col2:
+        st.page_link("pages/2_模擬考模式.py", label="前往 模擬考模式", icon="📝", use_container_width=True)
+        
+    render_footer()
 
 if __name__ == "__main__":
     main()
