@@ -8,8 +8,11 @@ APP_ICON = "🛡️"
 # === 路徑設定 ===
 from pathlib import Path
 
-BASE_DIR = Path(__file__).resolve().parent.parent  # exam_system
+# exam_system/config/settings.py -> exam_system/
+BASE_DIR = Path(__file__).resolve().parents[1]  # exam_system
 BANK_DIR = BASE_DIR / "bank"
+
+SUPPORTED_EXTS = {".xlsx", ".xlsm", ".xlsw", ".xls"}
 
 # === AI 設定 ===
 GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", os.getenv("GEMINI_API_KEY", ""))
