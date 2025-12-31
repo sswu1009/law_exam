@@ -1,4 +1,3 @@
-# exam_system/app.py
 from pathlib import Path
 import sys
 import streamlit as st
