@@ -1,154 +1,107 @@
-# services/db_client.py
 import os
-from pathlib import Path
-from functools import lru_cache
-from typing import Dict, List, Any, Optional
-
+import re
 import pandas as pd
+from pathlib import Path
+from config import settings
 
-# === 動態載入 bank/ 下的所有 xlsx 題庫 ===
+# 欄位正規化對照表
+COLUMN_MAPPING = {
+    "題目": "Question", "題幹": "Question", "Question": "Question",
+    "答案": "Answer", "Answer": "Answer",
+    "解析": "Explanation", "詳解": "Explanation", "Explanation": "Explanation",
+    "章節": "Chapter", "Chapter": "Chapter",
+    "Tag": "Chapter", "標籤": "Chapter"
+}
 
-BASE_DIR = Path(__file__).resolve().parent.parent  # exam_system/
-BANK_DIR = BASE_DIR / "bank"
-
-# 可視需要調整：哪些欄位是你題庫一定會有的
-DEFAULT_COLUMNS = ["題目", "選項A", "選項B", "選項C", "選項D", "答案", "章節"]
-
-
-def _normalize_df(df: pd.DataFrame) -> pd.DataFrame:
-    """統一欄位名稱，缺的補空欄位，不多做邏輯，維持原本題庫結構。"""
-    # 轉成字串欄位避免後面 st 顯示出現 float
+def normalize_df(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    核心邏輯：將各種亂七八糟的 Excel 欄位統一為標準格式
+    標準格式: ID, Question, OptionA, OptionB, OptionC, OptionD, Answer, Explanation, Chapter
+    """
     df = df.copy()
-    for col in df.columns:
-        df[col] = df[col].astype(str)
-
-    # 若沒有章節欄位也不要報錯，補空白，後面頁面可用 .get() 取
-    if "章節" not in df.columns:
-        df["章節"] = ""
-
-    return df
-
-
-def _read_excel_file(path: Path) -> pd.DataFrame:
-    # 只處理 xlsx
-    df = pd.read_excel(path)
-    df = _normalize_df(df)
-    return df
-
-
-@lru_cache(maxsize=1)
-def load_all_banks() -> Dict[str, pd.DataFrame]:
-    """
-    掃描 bank/ 下所有子資料夾與 .xlsx
-    回傳格式：
-    {
-        "人身": DataFrame,
-        "外幣": DataFrame,
-        ...
-    }
-    """
-    result: Dict[str, pd.DataFrame] = {}
-
-    if not BANK_DIR.exists():
-        return result
-
-    # 1. 先掃子資料夾
-    for item in BANK_DIR.iterdir():
-        if item.is_dir():
-            category_name = item.name  # 例如 人身/外幣/投資型/產險
-            frames = []
-            for f in item.glob("*.xlsx"):
-                frames.append(_read_excel_file(f))
-            if frames:
-                result[category_name] = pd.concat(frames, ignore_index=True)
-
-    # 2. bank 根目錄底下如果也有 .xlsx，就放一個特別名稱
-    root_frames = []
-    for f in BANK_DIR.glob("*.xlsx"):
-        root_frames.append(_read_excel_file(f))
-    if root_frames:
-        result["_root"] = pd.concat(root_frames, ignore_index=True)
-
-    return result
-
-
-def list_categories() -> List[str]:
-    """
-    回傳目前可用的題庫分類名稱，供 UI 下拉使用
-    """
-    banks = load_all_banks()
-    # 不一定要把 _root 顯示出來，看你要不要
-    return [k for k in banks.keys() if k != "_root"]
-
-
-def get_bank(category: str) -> Optional[pd.DataFrame]:
-    """
-    取得指定類別的題庫 DataFrame
-    """
-    banks = load_all_banks()
-    return banks.get(category)
-
-
-def list_chapters(category: str) -> List[str]:
-    """
-    列出該類別所有章節名稱（去重、去空白）
-    """
-    df = get_bank(category)
-    if df is None or "章節" not in df.columns:
-        return []
-    chapters = df["章節"].fillna("").astype(str).tolist()
-    # 去掉空字串
-    chapters = [c.strip() for c in chapters if c.strip()]
-    return sorted(list(set(chapters)))
-
-
-def pick_questions(
-    category: str,
-    chapter: Optional[str] = None,
-    limit: Optional[int] = None,
-    shuffle: bool = True,
-) -> pd.DataFrame:
-    """
-    依類別與章節取題
-    - category: 類別，如「人身」
-    - chapter: 若指定章節則過濾
-    - limit: 取幾題
-    """
-    df = get_bank(category)
-    if df is None:
-        return pd.DataFrame()
-
-    if chapter:
-        df = df[df["章節"].astype(str) == str(chapter)]
-
-    if shuffle:
-        df = df.sample(frac=1).reset_index(drop=True)
-
-    if limit is not None:
-        df = df.head(limit)
-
-    return df.reset_index(drop=True)
     
-def extract_options_from_row(row: dict) -> dict:
-    """
-    從 Excel row 中動態擷取選項內容
-    支援：選項A / A / 選項Ａ 等格式
-    """
-    options = {}
-
-    for key, value in row.items():
-        if not value:
+    # 1. 移除欄位前後空白
+    df.columns = [str(c).strip() for c in df.columns]
+    
+    # 2. 重新命名基本欄位
+    df = df.rename(columns={k: v for k, v in COLUMN_MAPPING.items() if k in df.columns})
+    
+    # 3. 動態識別選項欄位 (A, OptionA, 選項A...)
+    # 透過 Regex 抓出 A, B, C, D, E
+    for col in df.columns:
+        # 情況 A: 純字母 "A", "B"...
+        if col.upper() in ["A", "B", "C", "D", "E"]:
+            df = df.rename(columns={col: f"Option{col.upper()}"})
             continue
+            
+        # 情況 B: "選項A", "Option A"...
+        match = re.match(r"^(選項|Option)\s*([A-Ea-e])$", col, re.IGNORECASE)
+        if match:
+            letter = match.group(2).upper()
+            df = df.rename(columns={col: f"Option{letter}"})
 
-        key_str = str(key).strip()
+    # 4. 確保必要欄位存在
+    required = ["Question", "Answer"]
+    if not all(col in df.columns for col in required):
+        return pd.DataFrame() # 格式不符，回傳空表
 
-        # 常見選項欄位判斷
-        if key_str in ["A", "B", "C", "D"]:
-            options[key_str] = str(value).strip()
+    # 5. 補全缺失的選填欄位
+    for col in ["Explanation", "Chapter", "OptionA", "OptionB", "OptionC", "OptionD"]:
+        if col not in df.columns:
+            df[col] = ""
 
-        elif key_str.startswith("選項"):
-            # 例如：選項A、選項Ｂ
-            option_key = key_str.replace("選項", "").strip()
-            options[option_key] = str(value).strip()
+    # 6. 資料清理
+    df["Answer"] = df["Answer"].astype(str).str.upper().str.strip()
+    # 處理答案可能包含全形字母的情況
+    full_width = str.maketrans("ＡＢＣＤＥ", "ABCDE")
+    df["Answer"] = df["Answer"].str.translate(full_width)
+    
+    # 確保選項是字串
+    opt_cols = [c for c in df.columns if c.startswith("Option")]
+    for c in opt_cols:
+        df[c] = df[c].fillna("").astype(str)
+        
+    # 產生 ID
+    df["ID"] = range(1, len(df) + 1)
+    
+    return df
 
-    return options
+def load_all_banks():
+    """掃描 bank/ 資料夾下所有 xlsx/xlsw 檔案並合併"""
+    bank_root = Path(settings.BANKS_DIR)
+    if not bank_root.exists():
+        return {}
+
+    data_map = {} # { "分類名稱": DataFrame }
+
+    # 遞迴搜尋
+    for file_path in bank_root.rglob("*"):
+        if file_path.suffix.lower() in [".xlsx", ".xlsw"] and not file_path.name.startswith("~$"):
+            try:
+                # 判斷分類 (取父資料夾名稱，若在根目錄則設為 "綜合")
+                category = file_path.parent.name if file_path.parent != bank_root else "綜合"
+                
+                raw_df = pd.read_excel(file_path, dtype=str)
+                norm_df = normalize_df(raw_df)
+                
+                if not norm_df.empty:
+                    if category not in data_map:
+                        data_map[category] = []
+                    data_map[category].append(norm_df)
+            except Exception as e:
+                print(f"Error reading {file_path}: {e}")
+                continue
+
+    # 合併每個分類的 DataFrame
+    final_banks = {}
+    for cat, df_list in data_map.items():
+        if df_list:
+            final_banks[cat] = pd.concat(df_list, ignore_index=True)
+            
+    return final_banks
+
+def get_chapters(df: pd.DataFrame):
+    if df.empty or "Chapter" not in df.columns:
+        return []
+    chapters = df["Chapter"].dropna().unique().tolist()
+    return sorted([str(c) for c in chapters if str(c).strip()])
