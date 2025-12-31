@@ -1,9 +1,10 @@
-from services.db_client import load_all_banks
+import streamlit as st
+
 from config.settings import BANK_DIR
+from services.db_client import load_all_banks
 
 st.write("BANK_DIR =", BANK_DIR)
 st.write("題庫分類 =", list(load_all_banks().keys()))
-
 
 
 
