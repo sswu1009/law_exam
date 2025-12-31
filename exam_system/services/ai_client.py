@@ -1,47 +1,45 @@
+import os
 import streamlit as st
-import google.generativeai as genai
-from config import settings
+import hashlib
 
-def is_ready():
-    return bool(settings.GEMINI_API_KEY)
+# 嘗試匯入 Gemini
+try:
+    import google.generativeai as genai
+    _HAS_GEMINI = True
+except ImportError:
+    _HAS_GEMINI = False
 
-def get_ai_explanation(question: dict):
+from config.settings import GEMINI_API_KEY, GEMINI_MODEL
+
+def _gemini_ready() -> bool:
+    return _HAS_GEMINI and bool(GEMINI_API_KEY)
+
+@st.cache_data(show_spinner=False)
+def get_ai_hint(question_text: str, choices: dict, correct: str = "", explanation: str = "") -> str:
     """
-    question dict 需包含: Question, OptionA~D, Answer, Explanation
+    產生 AI 解析 (含快取)
     """
-    if not is_ready():
-        return "⚠️ 請先設定 GEMINI_API_KEY"
+    if not _gemini_ready():
+        return "⚠️ 請先設定 GEMINI_API_KEY 以啟用 AI 解析功能。"
+
+    # 組合 Prompt
+    choices_text = "\n".join([f"{k}. {v}" for k, v in choices.items() if v])
+    
+    system_msg = "你是一位保險證照考試的專業助教。請針對題目進行解析，解釋正確選項為何正確，並指出錯誤選項的盲點。請勿直接給出答案代號，而是著重觀念講解。"
+    user_msg = f"""
+    題目：{question_text}
+    選項：
+    {choices_text}
+    正確答案：{correct}
+    官方詳解參考：{explanation}
+    
+    請用條列式說明，最後加上 [Powered by Gemini]。
+    """
 
     try:
-        genai.configure(api_key=settings.GEMINI_API_KEY)
-        model = genai.GenerativeModel(settings.GEMINI_MODEL)
-        
-        # 組裝 Prompt
-        options_text = "\n".join([f"{k[-1]}. {v}" for k, v in question.items() if k.startswith("Option") and v])
-        
-        prompt = f"""
-        [角色設定]
-        你是一位專業的保險證照考試助教。
-        
-        [任務]
-        請針對以下題目進行解析。
-        1. 解釋為何正確答案是正確的。
-        2. 簡單說明其他選項為何錯誤。
-        3. 若有官方詳解，請參考並補充，但不要照抄。
-        
-        [題目資訊]
-        題目: {question.get('Question')}
-        選項:
-        {options_text}
-        正確答案: {question.get('Answer')}
-        官方詳解: {question.get('Explanation', '無')}
-        
-        [輸出格式]
-        請用條列式清楚說明，語氣親切專業。
-        最後加上一行: [Powered by Gemini]
-        """
-        
-        resp = model.generate_content(prompt)
+        genai.configure(api_key=GEMINI_API_KEY)
+        model = genai.GenerativeModel(GEMINI_MODEL)
+        resp = model.generate_content(f"{system_msg}\n\n{user_msg}")
         return resp.text
     except Exception as e:
-        return f"AI 連線錯誤: {str(e)}"
+        return f"AI 連線失敗：{str(e)}"
