@@ -1,108 +1,134 @@
-import time
+"""
+練習模式 - 逐題作答，即時反饋
+"""
+import os
+import sys
+
+# 確保能導入 exam_system 模組
+if __name__ == "__main__":
+    parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if parent_dir not in sys.path:
+        sys.path.insert(0, parent_dir)
+
 import streamlit as st
+import random
 
 from exam_system.config import settings
-from exam_system.services import github_repo
-from exam_system.services.bank_loader import load_bank_from_github
-from exam_system.ui.layout import apply_page_config, render_header
-from exam_system.ui.admin_panel import render_admin_panel
+from exam_system.ui.layout import setup_page, show_header
 from exam_system.ui.exam_render import (
-    ensure_session_defaults,
-    build_option_cols,
-    sample_paper,
-    render_practice_mode,
-    render_results,
+    setup_sidebar_config,
+    create_paper,
+    render_practice_question
 )
+from exam_system.services.gemini_client import gemini_service
 
-apply_page_config()
-ensure_session_defaults()
-render_header("🧠 練習模式")
+# 設定頁面
+setup_page("練習模式")
 
-# 管理者面板（在 sidebar expander）
-render_admin_panel()
+# 顯示標題
+show_header()
 
-with st.sidebar:
-    st.header("⚙️ 考試設定（練習模式）")
-    st.subheader("題庫來源")
+st.info("📝 **練習模式**：逐題作答，可查看 AI 提示，答對立即反饋")
 
-    pick_type = st.selectbox("選擇類型", options=settings.BANK_TYPES, index=0, key="practice_type")
-    merge_all = st.checkbox("合併載入此類型下所有題庫檔", value=False, key="practice_merge_all")
+# 側邊欄設定
+sidebar_config = setup_sidebar_config(mode="practice")
 
-    type_files = github_repo.list_bank_files(pick_type)
-    if not type_files:
-        st.error(f"❌ {pick_type} 類型目前沒有 .xlsx 題庫檔")
-        st.stop()
+# 初始化練習狀態
+if "practice_paper" not in st.session_state:
+    st.session_state.practice_paper = None
+if "practice_idx" not in st.session_state:
+    st.session_state.practice_idx = 0
+if "practice_correct" not in st.session_state:
+    st.session_state.practice_correct = 0
+if "practice_answers" not in st.session_state:
+    st.session_state.practice_answers = {}
 
-    if merge_all:
-        bank_source = type_files
-        st.caption(f"將合併 {len(type_files)} 檔")
-    else:
-        current_path = github_repo.get_current_bank_path(pick_type)
-        idx = type_files.index(current_path) if current_path in type_files else 0
-        pick_file = st.selectbox("選擇題庫檔", options=type_files, index=idx, key="practice_pick_file")
-        bank_source = pick_file
-
-    # 載入題庫
-    bank_df = load_bank_from_github(bank_source)
-    st.session_state["df"] = bank_df
-
-    # 標籤篩選
-    all_tags = sorted({t.strip() for tags in bank_df["Tag"].dropna().astype(str) for t in tags.split(";") if t.strip()})
-    picked_tags = st.multiselect("選擇標籤（可多選，不選=全選）", options=all_tags, key="practice_tags")
-
-    if picked_tags:
-        mask = bank_df["Tag"].astype(str).apply(
-            lambda s: any(t in [x.strip() for x in s.split(";")] for t in picked_tags)
-        )
-        filtered = bank_df[mask].copy()
-    else:
-        filtered = bank_df.copy()
-
-    max_q = len(filtered)
-    num_q = st.number_input("抽題數量", min_value=1, max_value=max(1, max_q), value=min(10, max_q), step=1, key="practice_numq")
-
-    shuffle_options = st.checkbox("隨機打亂選項順序", value=True, key="practice_shuffle_opt")
-    random_order = st.checkbox("隨機打亂題目順序", value=True, key="practice_shuffle_q")
-    show_image = st.checkbox("顯示圖片（若有）", value=True, key="practice_show_img")
-
-    st.divider()
-    start_btn = st.button("🚀 開始練習", type="primary", key="practice_start")
-
-    # 設定 pointer（僅單檔模式才寫）
-    if start_btn and (not merge_all) and isinstance(bank_source, str):
-        try:
-            github_repo.set_current_bank_path(pick_type, bank_source)
-        except Exception as e:
-            st.warning("無法寫回指標檔，將以當前選擇直接出題。")
-            st.caption(str(e))
-
-
-# --- 開始建立試卷 ---
-if start_btn:
-    option_cols = build_option_cols(filtered)
-    if len(option_cols) < 2:
-        st.error("題庫格式不完整：找不到足夠的 Option 欄位（OptionA/OptionB...）。")
-        st.stop()
-
-    st.session_state.paper = sample_paper(
-        filtered,
-        option_cols=option_cols,
-        n=int(num_q),
-        shuffle_options=shuffle_options,
-        random_order=random_order,
+# 開始按鈕
+if sidebar_config.get("start_button"):
+    filtered_bank = sidebar_config["filtered_bank"]
+    paper = create_paper(
+        filtered_bank,
+        sidebar_config["num_questions"],
+        sidebar_config["shuffle_options"],
+        sidebar_config["random_order"]
     )
-    st.session_state.start_ts = time.time()
-    st.session_state.answers = {}
-    st.session_state.started = True
-    st.session_state.show_results = False
-    st.session_state.results_df = None
-    st.session_state.score_tuple = None
+    
+    st.session_state.practice_paper = paper
+    st.session_state.practice_idx = 0
+    st.session_state.practice_correct = 0
+    st.session_state.practice_answers = {}
     st.rerun()
 
+# 顯示練習題目
+if st.session_state.practice_paper:
+    paper = st.session_state.practice_paper
+    idx = st.session_state.practice_idx
+    
+    if idx < len(paper):
+        question = paper[idx]
+        
+        # 渲染題目
+        result = render_practice_question(
+            question,
+            idx,
+            len(paper),
+            sidebar_config.get("show_image", True)
+        )
+        
+        # 處理提交
+        if result["submitted"]:
+            is_correct = result["is_correct"]
+            
+            if is_correct:
+                st.success("✅ 答對了！")
+                st.session_state.practice_correct += 1
+            else:
+                st.error(f"❌ 答錯了。正確答案：{result['correct_answer']}")
+                if result.get("explanation"):
+                    st.caption(f"📖 題庫詳解：{result['explanation']}")
+            
+            st.session_state.practice_answers[question["ID"]] = result["user_answer"]
+        
+        # 下一題 / 完成
+        col1, col2, col3 = st.columns([1, 1, 1])
+        
+        with col1:
+            if idx < len(paper) - 1:
+                if st.button("➡️ 下一題", key=f"next_{idx}", use_container_width=True):
+                    st.session_state.practice_idx += 1
+                    st.rerun()
+            else:
+                st.success(f"🎉 練習完成！答對：{st.session_state.practice_correct}/{len(paper)}")
+        
+        with col2:
+            if st.button("🔁 重新練習", key=f"restart_{idx}", use_container_width=True):
+                st.session_state.practice_paper = None
+                st.session_state.practice_idx = 0
+                st.session_state.practice_correct = 0
+                st.session_state.practice_answers = {}
+                st.rerun()
+        
+        with col3:
+            if st.button("📊 查看統計", key=f"stats_{idx}", use_container_width=True):
+                st.session_state.practice_show_stats = True
+                st.rerun()
+    
+    # 顯示統計
+    if st.session_state.get("practice_show_stats"):
+        st.divider()
+        st.subheader("📊 練習統計")
+        
+        total = len(st.session_state.practice_answers)
+        correct = st.session_state.practice_correct
+        accuracy = (correct / total * 100) if total > 0 else 0
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("已答題數", total)
+        with col2:
+            st.metric("答對題數", correct)
+        with col3:
+            st.metric("正確率", f"{accuracy:.1f}%")
 
-# --- 顯示：練習逐題 or 結果 ---
-if st.session_state.started and st.session_state.paper and not st.session_state.show_results:
-    render_practice_mode(st.session_state.paper, show_image=show_image)
-
-elif st.session_state.started and st.session_state.paper and st.session_state.show_results:
-    render_results(exam_mode="練習模式", paper=st.session_state.paper)
+else:
+    st.info("👈 請在左側邊欄設定並點擊「🚀 開始練習」")
