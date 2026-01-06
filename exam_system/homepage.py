@@ -1,3 +1,11 @@
+import sys
+import os
+
+# 顯示當前工作目錄
+print("Current Working Directory:", os.getcwd())
+# 顯示 Python 搜尋路徑
+print("System Path:", sys.path)
+
 import streamlit as st
 from exam_system.ui import layout
 from exam_system.ui import admin_panel
