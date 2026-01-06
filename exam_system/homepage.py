@@ -1,10 +1,28 @@
 import sys
 import os
 
-# 顯示當前工作目錄
-print("Current Working Directory:", os.getcwd())
-# 顯示 Python 搜尋路徑
-print("System Path:", sys.path)
+# 取得目前檔案所在的上一層目錄 (即專案根目錄)
+# 如果是在 Home.py，用 os.path.dirname(os.path.abspath(__file__))
+# 如果是在 pages/1_練習模式.py，則需要往上找兩層
+try:
+    # 嘗試定位專案根目錄
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    # 判斷是否在 pages 資料夾內，如果是，根目錄在上一層
+    if current_dir.endswith("pages"):
+        root_dir = os.path.dirname(current_dir)
+    else:
+        root_dir = current_dir
+        
+    if root_dir not in sys.path:
+        sys.path.append(root_dir)
+        
+except Exception:
+    pass
+
+# 接下來才是原本的 import
+from exam_system.ui import layout
+# ...
 
 import streamlit as st
 from exam_system.ui import layout
